@@ -1,11 +1,25 @@
-from .zscore_detector import ZScoreDetector
-from .isolation_forest_detector import IsolationForestDetector
-from .pca_recon_detector import PCAReconstructionDetector
-from .ensemble import EnsembleDetector
+from .vectorial import (
+    IsolationForestDetector,
+    ExtendedIForestDetector,
+    MahalanobisDetector,
+    EllipticEnvelopeDetector,
+    RobustCovarianceDetector,
+    KNNDetector,
+    OCSVMDetector,
+    LOFDetector,
+)
+from .sequential.hmm_detector import HMMDetector
+from .sequential.hawkes_detector import HawkesDetector
 
 __all__ = [
-    "ZScoreDetector",
     "IsolationForestDetector",
-    "PCAReconstructionDetector",
-    "EnsembleDetector",
+    "ExtendedIForestDetector",
+    "MahalanobisDetector",
+    "EllipticEnvelopeDetector",
+    "RobustCovarianceDetector",
+    "KNNDetector",
+    "OCSVMDetector",
+    "LOFDetector",
+    "HMMDetector",
+    "HawkesDetector",
 ]
