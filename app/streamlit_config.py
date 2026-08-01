@@ -1,55 +1,171 @@
-"""Configuración centralizada para Streamlit app - Detectores & Ensemble."""
+"""Centralized Streamlit UI configuration: detector registry and defaults.
+
+Single source of truth for detector metadata (display name, description, category,
+parameter ranges, and teaching-track overlay family). The sidebar sliders, the
+teaching track and the results views all read from ``DETECTOR_REGISTRY``.
+"""
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
-# Asegurar que src está en el path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from detectors.factory import DETECTOR_FACTORY  # noqa: E402
+
+
+@dataclass(frozen=True)
+class ParamSpec:
+    """Slider definition for a single detector parameter."""
+
+    label: str
+    min: float
+    max: float
+    default: float
+    step: float
+    kwarg: str  # keyword passed to the detector constructor
+
+
+@dataclass(frozen=True)
+class DetectorSpec:
+    """UI metadata for one detector."""
+
+    name: str
+    description: str
+    category: str
+    family: str = "none"  # teaching-track overlay: iforest / covariance_* / knn / lof / boundary_only / none
+    default: bool = False
+    params: tuple[ParamSpec, ...] = ()
+
+    @property
+    def detector_cls(self) -> type:
+        return DETECTOR_FACTORY[self.name]
+
+
 # ============================================================================
-# DETECTOR DEFAULTS & RANGES
+# DETECTOR REGISTRY (unified, used by sidebar + teaching track)
 # ============================================================================
 
-DETECTOR_PARAMS = {
-    "Isolation Forest": {
-        "contamination": {"min": 0.01, "max": 0.20, "default": 0.05, "step": 0.01},
-    },
-    "Extended IForest": {
-        "contamination": {"min": 0.01, "max": 0.20, "default": 0.05, "step": 0.01},
-    },
-    "Mahalanobis": {
-        "threshold_percentile": {"min": 80, "max": 99, "default": 95, "step": 1},
-    },
-    "Elliptic Envelope": {
-        "contamination": {"min": 0.01, "max": 0.3, "default": 0.1, "step": 0.01},
-    },
-    "Robust Covariance": {
-        "contamination": {"min": 0.01, "max": 0.3, "default": 0.1, "step": 0.01},
-    },
-    "KNN": {
-        "n_neighbors": {"min": 3, "max": 50, "default": 5, "step": 1},
-    },
-    "OC-SVM": {
-        "nu": {"min": 0.01, "max": 0.3, "default": 0.05, "step": 0.01},
-    },
-    "LOF": {
-        "n_neighbors": {"min": 5, "max": 50, "default": 20, "step": 1},
-    },
-    "HMM": {
-        "n_components": {"min": 2, "max": 8, "default": 3, "step": 1},
-    },
-    "Hawkes": {
-        "decay": {"min": 0.1, "max": 1.0, "default": 0.5, "step": 0.1},
-    },
+DETECTOR_REGISTRY: dict[str, DetectorSpec] = {
+    "Isolation Forest": DetectorSpec(
+        name="Isolation Forest",
+        description=(
+            "Random-partition isolation: anomalies are cut apart in a few splits. "
+            "Fast and robust in high dimensions."
+        ),
+        category="Density",
+        family="iforest",
+        default=True,
+        params=(
+            ParamSpec("Contamination", 0.01, 0.20, 0.05, 0.01, "contamination"),
+            ParamSpec("Trees", 20, 300, 100, 10, "n_estimators"),
+        ),
+    ),
+    "Extended IForest": DetectorSpec(
+        name="Extended IForest",
+        description="IForest with oblique (sliced) paths for ultra-high-dimensional data.",
+        category="Density",
+        family="iforest",
+        params=(
+            ParamSpec("Contamination", 0.01, 0.20, 0.05, 0.01, "contamination"),
+            ParamSpec("Trees", 20, 300, 100, 10, "n_estimators"),
+        ),
+    ),
+    "Mahalanobis": DetectorSpec(
+        name="Mahalanobis",
+        description="Covariance-aware distance to the mean; assumes Gaussian data.",
+        category="Distance",
+        family="covariance_empirical",
+        default=True,
+        params=(ParamSpec("Threshold percentile", 80, 99, 95, 1, "threshold_percentile"),),
+    ),
+    "Elliptic Envelope": DetectorSpec(
+        name="Elliptic Envelope",
+        description="Robust Gaussian fit (MCD) resistant to outliers during training.",
+        category="Distance",
+        family="covariance_elliptic",
+        default=True,
+        params=(ParamSpec("Contamination", 0.01, 0.30, 0.10, 0.01, "contamination"),),
+    ),
+    "Robust Covariance": DetectorSpec(
+        name="Robust Covariance",
+        description="Minimum Covariance Determinant ellipse; very robust covariance estimate.",
+        category="Distance",
+        family="covariance_robust",
+        params=(ParamSpec("Contamination", 0.01, 0.30, 0.10, 0.01, "contamination"),),
+    ),
+    "KNN": DetectorSpec(
+        name="KNN",
+        description="Distance to the k-th nearest neighbor; distribution-agnostic.",
+        category="Distance",
+        family="knn",
+        params=(ParamSpec("Neighbors", 3, 50, 5, 1, "n_neighbors"),),
+    ),
+    "OC-SVM": DetectorSpec(
+        name="OC-SVM",
+        description="Learns a boundary that wraps the normal region; supports kernels.",
+        category="Boundary",
+        family="boundary_only",
+        params=(ParamSpec("Nu", 0.01, 0.30, 0.05, 0.01, "nu"),),
+    ),
+    "LOF": DetectorSpec(
+        name="LOF",
+        description="Local density factor; compares local vs. global density.",
+        category="Density",
+        family="lof",
+        params=(ParamSpec("Neighbors", 5, 50, 20, 1, "n_neighbors"),),
+    ),
+    "Z-Score": DetectorSpec(
+        name="Z-Score",
+        description="Per-feature standard-deviation score; flags points far from the training mean.",
+        category="Univariate",
+        family="boundary_only",
+        params=(ParamSpec("Threshold (std)", 1.0, 5.0, 3.0, 0.1, "threshold"),),
+    ),
+    "PCA Reconstruction": DetectorSpec(
+        name="PCA Reconstruction",
+        description="Reconstruction error to the dominant linear subspace.",
+        category="Dimensionality",
+        family="boundary_only",
+        params=(
+            ParamSpec("Components", 1, 20, 5, 1, "n_components"),
+            ParamSpec("Threshold percentile", 50, 99, 95, 1, "threshold_percentile"),
+        ),
+    ),
+    "HMM": DetectorSpec(
+        name="HMM",
+        description="Hidden Markov chain; regime transitions in temporal data.",
+        category="Sequential",
+        params=(ParamSpec("States", 2, 8, 3, 1, "n_components"),),
+    ),
+    "Hawkes": DetectorSpec(
+        name="Hawkes",
+        description="Self-exciting point process for event streams.",
+        category="Sequential",
+        params=(ParamSpec("Decay", 0.1, 1.0, 0.5, 0.1, "decay"),),
+    ),
 }
+
+# Display order = insertion order of the registry.
+DETECTOR_NAMES: list[str] = list(DETECTOR_REGISTRY.keys())
+
+DETECTOR_DEFAULTS_LIST: list[str] = [
+    name for name, spec in DETECTOR_REGISTRY.items() if spec.default
+]
+
+DETECTOR_CATEGORIES: dict[str, list[str]] = {}
+for spec in DETECTOR_REGISTRY.values():
+    DETECTOR_CATEGORIES.setdefault(spec.category, []).append(spec.name)
+
+# ============================================================================
+# PIPELINE DEFAULTS
+# ============================================================================
 
 ENSEMBLE_DEFAULTS = {
     "mode": "soft",
     "threshold_percentile": 90,
     "weighting_scheme": "Uniform",
 }
-
-DETECTOR_DEFAULTS_LIST = ["Isolation Forest", "Mahalanobis", "Elliptic Envelope"]
 
 TRAINING_DEFAULTS = {
     "train_split": 0.7,
@@ -58,58 +174,4 @@ TRAINING_DEFAULTS = {
 SYNTHETIC_EVALUATION_DEFAULTS = {
     "contamination": 0.15,
     "magnitude": 6.0,
-}
-
-# ============================================================================
-# UI PRESENTATION
-# ============================================================================
-
-DETECTOR_DISPLAY_ORDER = [
-    "Isolation Forest",
-    "Extended IForest",
-    "Mahalanobis",
-    "Elliptic Envelope",
-    "Robust Covariance",
-    "KNN",
-    "OC-SVM",
-    "LOF",
-    "HMM",
-    "Hawkes",
-]
-
-DETECTOR_CATEGORIES = {
-    "Vectorial - Densidad": ["Isolation Forest", "Extended IForest"],
-    "Vectorial - Distancia": ["Mahalanobis", "Elliptic Envelope", "Robust Covariance", "KNN", "LOF"],
-    "Vectorial - Frontera": ["OC-SVM"],
-    "Secuencial": ["HMM", "Hawkes"],
-}
-
-DETECTOR_DESCRIPTIONS = {
-    "Isolation Forest": "Aislamiento por splits aleatorios. Rápido, robusto altas dimensiones.",
-    "Extended IForest": "IForest con sliced paths. Mejor en datos ultra-dimensionales.",
-    "Mahalanobis": "Distancia multivariante correlada. Asume gaussiana.",
-    "Elliptic Envelope": "Gaussiana robusta (MCD). Resiste outliers en fit.",
-    "Robust Covariance": "Mínimo Determinante Covarianza explícito. Covarianza muy robusta.",
-    "KNN": "k-vecinos más lejanos. Sin asumir distribución, agnóstico.",
-    "OC-SVM": "Separador hiperplano. No-convexo, kernels soportados.",
-    "LOF": "Factor de anomalía local. Densidad local vs global.",
-    "HMM": "Cadena de Markov oculta. Transiciones de régimen temporal.",
-    "Hawkes": "Procesos de Hawkes. Eventos con auto-excitación.",
-}
-
-# ============================================================================
-# DETECTOR FACTORY MAPPING
-# ============================================================================
-
-DETECTOR_PARAM_MAP = {
-    "Isolation Forest": {"contamination": "contamination"},
-    "Extended IForest": {"contamination": "contamination"},
-    "Mahalanobis": {"threshold_percentile": "threshold_percentile"},
-    "Elliptic Envelope": {"contamination": "contamination"},
-    "Robust Covariance": {"contamination": "contamination"},
-    "KNN": {"n_neighbors": "n_neighbors"},
-    "OC-SVM": {"nu": "nu"},
-    "LOF": {"n_neighbors": "n_neighbors"},
-    "HMM": {"n_components": "n_components"},
-    "Hawkes": {"decay": "decay"},
 }
