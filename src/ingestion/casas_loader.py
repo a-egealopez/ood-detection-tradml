@@ -1,13 +1,14 @@
 import argparse
-import sys
 import logging
-import pandas as pd
+import sys
 from pathlib import Path
+
+import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from config import HOUSES, db_path, raw_csv_path, setup_logging
 from ingestion.sqlite_manager import SQLiteDataManager
-from config import HOUSES, raw_csv_path, db_path, setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,9 @@ def load_casas_csv(csv_path: Path, house_id: str) -> pd.DataFrame:
 
     n_bad_ts = df["timestamp"].isna().sum()
     if n_bad_ts > 0:
-        logger.warning(f"[{house_id}] {n_bad_ts} filas con timestamp inválido, se descartan")
+        logger.warning(
+            f"[{house_id}] {n_bad_ts} filas con timestamp inválido, se descartan"
+        )
         df = df.dropna(subset=["timestamp"])
 
     converted = df["reading"].apply(_convert_reading)
@@ -63,21 +66,27 @@ def load_casas_csv(csv_path: Path, house_id: str) -> pd.DataFrame:
 
     n_bad_reading = df["event_type"].isna().sum()
     if n_bad_reading > 0:
-        logger.warning(f"[{house_id}] {n_bad_reading} filas con valor no reconocido, se descartan")
+        logger.warning(
+            f"[{house_id}] {n_bad_reading} filas con valor no reconocido, se descartan"
+        )
         df = df.dropna(subset=["event_type"])
 
     df_clean = df[["timestamp", "sensor_id", "event_type", "value"]].copy()
     df_clean["house_id"] = house_id
     df_clean = df_clean.sort_values("timestamp").reset_index(drop=True)
 
-    logger.info(f"[{house_id}] Dataset transformado: {len(df_clean)} eventos listos para insertar")
+    logger.info(
+        f"[{house_id}] Dataset transformado: {len(df_clean)} eventos listos para insertar"
+    )
     return df_clean
 
 
 def load_house(db: SQLiteDataManager, house_id: str, source: str = "real") -> int:
     csv_path = raw_csv_path(house_id, source=source)
     if not csv_path.exists():
-        logger.warning(f"[{house_id}] No se encontró {csv_path} (fuente '{source}'), se omite esta casa")
+        logger.warning(
+            f"[{house_id}] No se encontró {csv_path} (fuente '{source}'), se omite esta casa"
+        )
         return 0
 
     df = load_casas_csv(csv_path, house_id)
@@ -94,9 +103,13 @@ def load_all_houses(db: SQLiteDataManager, source: str = "real") -> dict:
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument(
-        "--source", choices=["real", "synthetic"], default="real",
+        "--source",
+        choices=["real", "synthetic"],
+        default="real",
         help="Qué fuente de datos cargar: 'real' (data/real/) o 'synthetic' (data/synthetic/)",
     )
     args = parser.parse_args()

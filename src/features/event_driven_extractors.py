@@ -51,7 +51,7 @@ diagnostics(group) -> dict con los valores intermedios necesarios para graficar
 cómo se calculó el vector de features de una ventana concreta.
 """
 
-from typing import Dict, List, Tuple
+import itertools
 
 import numpy as np
 import pandas as pd
@@ -77,14 +77,19 @@ class WindowAggregationExtractor:
     No apta para anomalías puntuales (evento individual raro dentro de un día normal).
     """
 
-    ANOMALY_TYPES: List[str] = ["contextual", "colectiva"]
+    ANOMALY_TYPES: list[str] = ["contextual", "colectiva"]
 
-    FEATURE_NAMES: List[str] = [
-        "n_events", "n_sensors", "activity_hours", "avg_gap_minutes",
-        "night_activity_ratio", "entropy_hourly", "entropy_sensor",
+    FEATURE_NAMES: list[str] = [
+        "n_events",
+        "n_sensors",
+        "activity_hours",
+        "avg_gap_minutes",
+        "night_activity_ratio",
+        "entropy_hourly",
+        "entropy_sensor",
     ]
 
-    def extract(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
+    def extract(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
         df = df.copy()
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["date"] = df["timestamp"].dt.date
@@ -95,7 +100,7 @@ class WindowAggregationExtractor:
             dates.append(date)
         return np.array(rows), np.array(dates)
 
-    def _features_for_window(self, group: pd.DataFrame) -> List[float]:
+    def _features_for_window(self, group: pd.DataFrame) -> list[float]:
         group = group.copy()
         group["timestamp"] = pd.to_datetime(group["timestamp"])
         group["hour"] = group["timestamp"].dt.hour
@@ -114,13 +119,23 @@ class WindowAggregationExtractor:
         night_mask = (group["hour"] < 8) | (group["hour"] >= 22)
         night_ratio = float(night_mask.sum()) / n_events
 
-        hourly_counts = group.groupby("hour").size().reindex(range(24), fill_value=0).values
+        hourly_counts = (
+            group.groupby("hour").size().reindex(range(24), fill_value=0).values
+        )
         entropy_hourly = _entropy(hourly_counts)
         entropy_sensor = _entropy(group.groupby("sensor_id").size().values)
 
-        return [n_events, n_sensors, activity_hours, avg_gap, night_ratio, entropy_hourly, entropy_sensor]
+        return [
+            n_events,
+            n_sensors,
+            activity_hours,
+            avg_gap,
+            night_ratio,
+            entropy_hourly,
+            entropy_sensor,
+        ]
 
-    def diagnostics(self, group: pd.DataFrame) -> Dict:
+    def diagnostics(self, group: pd.DataFrame) -> dict:
         group = group.copy()
         group["timestamp"] = pd.to_datetime(group["timestamp"])
         group["hour"] = group["timestamp"].dt.hour
@@ -140,14 +155,20 @@ class IntervalStatisticsExtractor:
     (mean/CV/Fano factor describen el "ritmo" del día completo, no un instante).
     """
 
-    ANOMALY_TYPES: List[str] = ["puntual (crudo)", "colectiva (agregado por ventana)"]
+    ANOMALY_TYPES: list[str] = ["puntual (crudo)", "colectiva (agregado por ventana)"]
 
-    FEATURE_NAMES: List[str] = ["n_events", "mean_iei_sec", "std_iei_sec", "cv_iei", "fano_factor"]
+    FEATURE_NAMES: list[str] = [
+        "n_events",
+        "mean_iei_sec",
+        "std_iei_sec",
+        "cv_iei",
+        "fano_factor",
+    ]
 
     def __init__(self, fano_bin_minutes: float = 30.0):
         self.fano_bin_minutes = fano_bin_minutes
 
-    def extract(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
+    def extract(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
         df = df.copy()
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["date"] = df["timestamp"].dt.date
@@ -167,7 +188,11 @@ class IntervalStatisticsExtractor:
         ts = pd.to_datetime(group["timestamp"]).sort_values()
         if len(ts) < 2:
             return 0.0
-        bin_edges = pd.date_range(ts.min().floor("min"), ts.max().ceil("min") + pd.Timedelta(minutes=self.fano_bin_minutes), freq=f"{self.fano_bin_minutes}min")
+        bin_edges = pd.date_range(
+            ts.min().floor("min"),
+            ts.max().ceil("min") + pd.Timedelta(minutes=self.fano_bin_minutes),
+            freq=f"{self.fano_bin_minutes}min",
+        )
         if len(bin_edges) < 2:
             return 0.0
         counts, _ = np.histogram(ts.astype("int64"), bins=bin_edges.astype("int64"))
@@ -176,7 +201,7 @@ class IntervalStatisticsExtractor:
             return 0.0
         return float(counts.var() / mean_c)
 
-    def _features_for_window(self, group: pd.DataFrame) -> List[float]:
+    def _features_for_window(self, group: pd.DataFrame) -> list[float]:
         n_events = len(group)
         intervals = self._intervals_seconds(group)
         if len(intervals) < 2:
@@ -188,7 +213,7 @@ class IntervalStatisticsExtractor:
         fano = self._fano_factor(group)
         return [float(n_events), mean_iei, std_iei, cv_iei, fano]
 
-    def diagnostics(self, group: pd.DataFrame) -> Dict:
+    def diagnostics(self, group: pd.DataFrame) -> dict:
         return {
             "intervals_seconds": self._intervals_seconds(group),
             "features": self._features_for_window(group),
@@ -204,24 +229,29 @@ class NGramTransitionExtractor:
     anomalías puntuales ni contextuales puras.
     """
 
-    ANOMALY_TYPES: List[str] = ["colectiva (secuencia)"]
+    ANOMALY_TYPES: list[str] = ["colectiva (secuencia)"]
 
-    FEATURE_NAMES: List[str] = ["n_transitions", "transition_entropy", "top_transition_prob", "unique_bigrams_ratio"]
+    FEATURE_NAMES: list[str] = [
+        "n_transitions",
+        "transition_entropy",
+        "top_transition_prob",
+        "unique_bigrams_ratio",
+    ]
 
     def __init__(self, token_col: str = "sensor_id"):
         self.token_col = token_col
-        self.vocabulary_: List[str] = []
+        self.vocabulary_: list[str] = []
 
     def fit_vocabulary(self, df: pd.DataFrame) -> "NGramTransitionExtractor":
         self.vocabulary_ = sorted(df[self.token_col].astype(str).unique().tolist())
         return self
 
-    def _sequence(self, group: pd.DataFrame) -> List[str]:
+    def _sequence(self, group: pd.DataFrame) -> list[str]:
         group = group.copy()
         group["timestamp"] = pd.to_datetime(group["timestamp"])
         return group.sort_values("timestamp")[self.token_col].astype(str).tolist()
 
-    def extract(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
+    def extract(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
         if not self.vocabulary_:
             self.fit_vocabulary(df)
 
@@ -239,12 +269,12 @@ class NGramTransitionExtractor:
         seq = self._sequence(group)
         vocab = self.vocabulary_ or sorted(set(seq))
         matrix = pd.DataFrame(0, index=vocab, columns=vocab, dtype=float)
-        for a, b in zip(seq[:-1], seq[1:]):
+        for a, b in itertools.pairwise(seq):
             if a in matrix.index and b in matrix.columns:
                 matrix.loc[a, b] += 1
         return matrix
 
-    def _features_for_window(self, group: pd.DataFrame) -> List[float]:
+    def _features_for_window(self, group: pd.DataFrame) -> list[float]:
         seq = self._sequence(group)
         n_transitions = max(len(seq) - 1, 0)
         if n_transitions == 0:
@@ -263,7 +293,7 @@ class NGramTransitionExtractor:
 
         return [float(n_transitions), entropy, top_prob, unique_ratio]
 
-    def diagnostics(self, group: pd.DataFrame) -> Dict:
+    def diagnostics(self, group: pd.DataFrame) -> dict:
         return {
             "transition_matrix": self._transition_matrix(group),
             "sequence": self._sequence(group),
@@ -304,15 +334,21 @@ def generate_synthetic_events(
             n_clusters = max(3, events_per_day // 15)
             centers = rng.uniform(0, 24 * 60, size=n_clusters)
             per_cluster = max(events_per_day // n_clusters, 1)
-            offsets = np.concatenate([rng.normal(c, 5, size=per_cluster) for c in centers])
+            offsets = np.concatenate(
+                [rng.normal(c, 5, size=per_cluster) for c in centers]
+            )
         elif pattern == "day_night":
             day_events = int(events_per_day * 0.85)
             night_events = events_per_day - day_events
-            offsets = np.concatenate([
-                rng.uniform(8 * 60, 22 * 60, size=day_events),
-                rng.uniform(0, 8 * 60, size=night_events // 2),
-                rng.uniform(22 * 60, 24 * 60, size=night_events - night_events // 2),
-            ])
+            offsets = np.concatenate(
+                [
+                    rng.uniform(8 * 60, 22 * 60, size=day_events),
+                    rng.uniform(0, 8 * 60, size=night_events // 2),
+                    rng.uniform(
+                        22 * 60, 24 * 60, size=night_events - night_events // 2
+                    ),
+                ]
+            )
         else:
             raise ValueError(f"Patrón desconocido: {pattern}")
 
@@ -322,9 +358,13 @@ def generate_synthetic_events(
         event_types = rng.choice(["ON", "OFF"], size=len(timestamps))
 
         for ts, sensor, etype in zip(timestamps, chosen_sensors, event_types):
-            records.append({
-                "timestamp": ts, "sensor_id": sensor, "event_type": etype,
-                "value": 1.0 if etype == "ON" else 0.0,
-            })
+            records.append(
+                {
+                    "timestamp": ts,
+                    "sensor_id": sensor,
+                    "event_type": etype,
+                    "value": 1.0 if etype == "ON" else 0.0,
+                }
+            )
 
     return pd.DataFrame(records).sort_values("timestamp").reset_index(drop=True)

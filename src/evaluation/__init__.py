@@ -1,27 +1,27 @@
 from .metrics import (
+    accuracy,
+    compute_metrics,
+    confusion_matrix,
+    f1,
+    metrics_to_dataframe,
     precision,
     recall,
-    f1,
-    accuracy,
-    confusion_matrix,
-    compute_metrics,
-    metrics_to_dataframe,
 )
 from .synthetic_injection import (
-    inject_synthetic_anomalies,
-    evaluate_with_synthetic_anomalies,
     describe_scores,
+    evaluate_with_synthetic_anomalies,
+    inject_synthetic_anomalies,
 )
 
 __all__ = [
+    "accuracy",
+    "compute_metrics",
+    "confusion_matrix",
+    "describe_scores",
+    "evaluate_with_synthetic_anomalies",
+    "f1",
+    "inject_synthetic_anomalies",
+    "metrics_to_dataframe",
     "precision",
     "recall",
-    "f1",
-    "accuracy",
-    "confusion_matrix",
-    "compute_metrics",
-    "metrics_to_dataframe",
-    "inject_synthetic_anomalies",
-    "evaluate_with_synthetic_anomalies",
-    "describe_scores",
 ]

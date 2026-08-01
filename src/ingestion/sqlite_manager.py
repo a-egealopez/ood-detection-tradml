@@ -1,8 +1,8 @@
-import sqlite3
 import logging
-import pandas as pd
+import sqlite3
 from pathlib import Path
-from typing import List, Dict, Optional
+
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 class SQLiteDataManager:
     def __init__(self, db_path: str = "data/sensor_data.db"):
         self.db_path = db_path
-        self.conn: Optional[sqlite3.Connection] = None
+        self.conn: sqlite3.Connection | None = None
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
 
     def connect(self) -> sqlite3.Connection:
@@ -67,7 +67,7 @@ class SQLiteDataManager:
         records = df.to_dict("records")
         return self.insert_batch(records)
 
-    def insert_batch(self, list_of_dicts: List[Dict]) -> int:
+    def insert_batch(self, list_of_dicts: list[dict]) -> int:
         if self.conn is None:
             raise RuntimeError("Debes llamar a connect() antes de insert_batch()")
 
@@ -102,7 +102,9 @@ class SQLiteDataManager:
             inserted = cursor.rowcount if cursor.rowcount != -1 else len(rows)
             skipped = len(rows) - inserted
             if skipped > 0:
-                logger.info(f"{inserted} eventos insertados, {skipped} ya existían (ignorados)")
+                logger.info(
+                    f"{inserted} eventos insertados, {skipped} ya existían (ignorados)"
+                )
             else:
                 logger.info(f"Insertados {inserted} eventos correctamente")
             return inserted
@@ -135,7 +137,9 @@ class SQLiteDataManager:
             params=(house_id,),
         )
 
-    def query_date_range(self, start_date: str, end_date: str, house_id: Optional[str] = None) -> pd.DataFrame:
+    def query_date_range(
+        self, start_date: str, end_date: str, house_id: str | None = None
+    ) -> pd.DataFrame:
         if house_id is None:
             sql = """
                 SELECT * FROM sensor_events
@@ -151,14 +155,14 @@ class SQLiteDataManager:
         """
         return self.query_to_dataframe(sql, params=(house_id, start_date, end_date))
 
-    def list_houses(self) -> List[str]:
+    def list_houses(self) -> list[str]:
         if self.conn is None:
             raise RuntimeError("Debes llamar a connect() antes de list_houses()")
         cursor = self.conn.cursor()
         cursor.execute("SELECT DISTINCT house_id FROM sensor_events ORDER BY house_id")
         return [row[0] for row in cursor.fetchall()]
 
-    def get_stats(self, house_id: Optional[str] = None) -> Dict:
+    def get_stats(self, house_id: str | None = None) -> dict:
         if self.conn is None:
             raise RuntimeError("Debes llamar a connect() antes de get_stats()")
 
@@ -170,10 +174,15 @@ class SQLiteDataManager:
             cursor.execute(f"SELECT COUNT(*) FROM sensor_events {where}", params)
             count = cursor.fetchone()[0]
 
-            cursor.execute(f"SELECT MIN(timestamp), MAX(timestamp) FROM sensor_events {where}", params)
+            cursor.execute(
+                f"SELECT MIN(timestamp), MAX(timestamp) FROM sensor_events {where}",
+                params,
+            )
             min_ts, max_ts = cursor.fetchone()
 
-            cursor.execute(f"SELECT COUNT(DISTINCT sensor_id) FROM sensor_events {where}", params)
+            cursor.execute(
+                f"SELECT COUNT(DISTINCT sensor_id) FROM sensor_events {where}", params
+            )
             n_sensors = cursor.fetchone()[0]
 
             stats = {
@@ -206,8 +215,20 @@ if __name__ == "__main__":
     db.create_tables()
 
     batch = [
-        {"house_id": "aruba", "timestamp": "2024-01-01 10:30:00", "sensor_id": "M001", "event_type": "motion", "value": 1.0},
-        {"house_id": "aruba", "timestamp": "2024-01-01 10:31:00", "sensor_id": "M001", "event_type": "motion", "value": 0.0},
+        {
+            "house_id": "aruba",
+            "timestamp": "2024-01-01 10:30:00",
+            "sensor_id": "M001",
+            "event_type": "motion",
+            "value": 1.0,
+        },
+        {
+            "house_id": "aruba",
+            "timestamp": "2024-01-01 10:31:00",
+            "sensor_id": "M001",
+            "event_type": "motion",
+            "value": 0.0,
+        },
     ]
     count1 = db.insert_batch(batch)
     count2 = db.insert_batch(batch)
