@@ -2,6 +2,7 @@
 
 import plotly.graph_objects as go
 import streamlit as st
+from references import KIND_LABELS, resources_for
 from theme import (
     ANOMALY,
     ANOMALY_SOFT,
@@ -28,7 +29,7 @@ def section_title(text: str, level: str = "###") -> None:
 def metric_row(metrics: list[tuple[str, str]]) -> None:
     """Render a row of key/value metrics in balanced columns."""
     cols = st.columns(max(1, len(metrics)))
-    for col, (label, value) in zip(cols, metrics):
+    for col, (label, value) in zip(cols, metrics, strict=True):
         col.metric(label, value)
 
 
@@ -66,7 +67,7 @@ def guided_stepper(steps: list[str], current: int | str, key: str) -> int:
     Each step renders as a tab button and stores its index in ``session_state[key]``.
     ``current`` may be an index (first run) or a stored label.
     """
-    current_index = current if isinstance(current, int) else current
+    current_index = current
 
     cols = st.columns(len(steps), gap="small")
     for i, col in enumerate(cols):
@@ -217,7 +218,7 @@ def clickable_cards(specs: list[dict], key: str, gap: str = "medium") -> str:
     st.markdown(f"<style>{''.join(card_css)}</style>", unsafe_allow_html=True)
 
     cols = st.columns(len(specs), gap=gap)
-    for col, spec in zip(cols, specs):
+    for col, spec in zip(cols, specs, strict=True):
         with col:
             selected = spec["id"] == current
             lines = [f"{spec.get('icon', '')} **{spec['title']}**"]
@@ -336,9 +337,17 @@ DETECTOR_STRENGTHS: dict[str, tuple[str, str]] = {
         "Distribution-agnostic, no density or shape assumption",
         "Slow on large data; K is a sensitive hyperparameter",
     ),
-    "OC-SVM": (
-        "Flexible non-convex boundary with kernels",
-        "Expensive training; nu is delicate to tune",
+    "OC-SVM (RBF)": (
+        "Gaussian boundary; flexible non-convex decision surface",
+        "Gamma and nu are delicate to tune",
+    ),
+    "OC-SVM (Linear)": (
+        "Hyperplane boundary; fast and interpretable",
+        "Only separates linearly separable data",
+    ),
+    "OC-SVM (Poly)": (
+        "Polynomial boundary; non-linear with a controlled shape",
+        "Degree and coef0 add more hyperparameters",
     ),
     "LOF": (
         "Catches local deviations even inside dense regions",
@@ -413,8 +422,12 @@ def read_param_values(params, prefix: str) -> dict:
     return values
 
 
-def render_param_widgets(params, prefix: str, values: dict) -> None:
-    """Render one slider (or selectbox for enum params) per ParamSpec."""
+def render_param_widgets(params, prefix: str, values: dict, help: bool = False) -> None:
+    """Render one slider (or selectbox for enum params) per ParamSpec.
+
+    ``help=True`` appends the default value as widget help text (used where
+    sliders live under a toggle card instead of a full detector card).
+    """
     for param in params:
         key = f"{prefix}_{param.kwarg}"
         if param.options:
@@ -424,6 +437,7 @@ def render_param_widgets(params, prefix: str, values: dict) -> None:
                 options,
                 index=options.index(values[param.kwarg]),
                 key=key,
+                help=f"Default: {param.default}" if help else None,
             )
         else:
             value_type = type(param.default)
@@ -434,6 +448,20 @@ def render_param_widgets(params, prefix: str, values: dict) -> None:
                 value_type(values[param.kwarg]),
                 step=value_type(param.step),
                 key=key,
+            )
+
+
+def render_resources(method: str) -> None:
+    """Collapsible 'Learn more' list of curated references for a detector/concept."""
+    resources = resources_for(method)
+    if not resources:
+        return
+    with st.expander("📚 Learn more", expanded=False):
+        for res in resources:
+            st.markdown(
+                f"**{KIND_LABELS[res.kind]} · [{res.title}]({res.url})**  \n"
+                f"<span style='color:{MUTED};font-size:0.85em;'>{res.note}</span>",
+                unsafe_allow_html=True,
             )
 
 
@@ -469,6 +497,7 @@ def detector_card(
             badge(category, family_color(category))
         display_chart(fig, key=chart_key)
         auroc_pill(auroc)
+        render_resources(name)
         if show_strengths:
             strength_box(name)
         if show_params and params:

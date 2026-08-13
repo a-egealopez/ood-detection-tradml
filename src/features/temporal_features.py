@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from typing import ClassVar
 
 EPSILON = 1e-10
 
@@ -15,7 +16,7 @@ def _calculate_entropy(counts: np.ndarray) -> float:
 
 
 class TemporalFeatureExtractor:
-    FEATURE_NAMES = [
+    FEATURE_NAMES: ClassVar[list[str]] = [
         "n_events",
         "n_sensors",
         "activity_hours",

@@ -52,6 +52,7 @@ cómo se calculó el vector de features de una ventana concreta.
 """
 
 import itertools
+from typing import ClassVar
 
 import numpy as np
 import pandas as pd
@@ -77,9 +78,9 @@ class WindowAggregationExtractor:
     No apta para anomalías puntuales (evento individual raro dentro de un día normal).
     """
 
-    ANOMALY_TYPES: list[str] = ["contextual", "colectiva"]
+    ANOMALY_TYPES: ClassVar[list[str]] = ["contextual", "colectiva"]
 
-    FEATURE_NAMES: list[str] = [
+    FEATURE_NAMES: ClassVar[list[str]] = [
         "n_events",
         "n_sensors",
         "activity_hours",
@@ -155,9 +156,9 @@ class IntervalStatisticsExtractor:
     (mean/CV/Fano factor describen el "ritmo" del día completo, no un instante).
     """
 
-    ANOMALY_TYPES: list[str] = ["puntual (crudo)", "colectiva (agregado por ventana)"]
+    ANOMALY_TYPES: ClassVar[list[str]] = ["puntual (crudo)", "colectiva (agregado por ventana)"]
 
-    FEATURE_NAMES: list[str] = [
+    FEATURE_NAMES: ClassVar[list[str]] = [
         "n_events",
         "mean_iei_sec",
         "std_iei_sec",
@@ -229,9 +230,9 @@ class NGramTransitionExtractor:
     anomalías puntuales ni contextuales puras.
     """
 
-    ANOMALY_TYPES: list[str] = ["colectiva (secuencia)"]
+    ANOMALY_TYPES: ClassVar[list[str]] = ["colectiva (secuencia)"]
 
-    FEATURE_NAMES: list[str] = [
+    FEATURE_NAMES: ClassVar[list[str]] = [
         "n_transitions",
         "transition_entropy",
         "top_transition_prob",
@@ -357,7 +358,9 @@ def generate_synthetic_events(
         chosen_sensors = rng.choice(sensors, size=len(timestamps))
         event_types = rng.choice(["ON", "OFF"], size=len(timestamps))
 
-        for ts, sensor, etype in zip(timestamps, chosen_sensors, event_types):
+        for ts, sensor, etype in zip(
+            timestamps, chosen_sensors, event_types, strict=True
+        ):
             records.append(
                 {
                     "timestamp": ts,

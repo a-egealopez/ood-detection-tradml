@@ -1,8 +1,11 @@
 """Detector factory: maps display names to detector classes and builds instances.
 
 Kept outside Streamlit so it stays importable from the CLI, the app, and tests.
-Parameter values are cast to int when the default is an int (sliders return floats).
+Parameter values are cast to int when the default is an int (sliders return floats);
+numeric-looking strings (e.g. "0.5") become floats.
 """
+
+import contextlib
 
 from .sequential.hawkes_detector import HawkesDetector
 from .sequential.hmm_detector import HMMDetector
@@ -26,12 +29,22 @@ DETECTOR_FACTORY: dict[str, type] = {
     "Elliptic Envelope": EllipticEnvelopeDetector,
     "Robust Covariance": RobustCovarianceDetector,
     "KNN": KNNDetector,
-    "OC-SVM": OCSVMDetector,
+    "OC-SVM (RBF)": OCSVMDetector,
+    "OC-SVM (Linear)": OCSVMDetector,
+    "OC-SVM (Poly)": OCSVMDetector,
     "LOF": LOFDetector,
     "Z-Score": ZScoreDetector,
     "PCA Reconstruction": PCAReconstructionDetector,
     "HMM": HMMDetector,
     "Hawkes": HawkesDetector,
+}
+
+# Parameters that are fixed per named detector (drives UI variants of one class,
+# e.g. One-Class SVM by kernel). Merged into every instance after the user params.
+FIXED_PARAMS: dict[str, dict] = {
+    "OC-SVM (RBF)": {"kernel": "rbf"},
+    "OC-SVM (Linear)": {"kernel": "linear"},
+    "OC-SVM (Poly)": {"kernel": "poly"},
 }
 
 
@@ -49,11 +62,10 @@ def build_detector(name: str, params: dict) -> object:
         # Selectbox string params that encode a number (e.g. max_samples="0.5")
         # become real floats so sklearn receives the numeric value.
         elif isinstance(value, str):
-            try:
+            with contextlib.suppress(ValueError):
                 value = float(value)
-            except ValueError:
-                pass
         kwargs[key] = value
+    kwargs.update(FIXED_PARAMS.get(name, {}))
     return detector_cls(**kwargs)
 
 

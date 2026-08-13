@@ -97,7 +97,7 @@ DETECTOR_REGISTRY: dict[str, DetectorSpec] = {
     "Mahalanobis": DetectorSpec(
         name="Mahalanobis",
         description="Covariance-aware distance to the mean; assumes Gaussian data.",
-        category="Distance",
+        category="Gaussian",
         family="covariance_empirical",
         default=True,
         params=(
@@ -107,7 +107,7 @@ DETECTOR_REGISTRY: dict[str, DetectorSpec] = {
     "Elliptic Envelope": DetectorSpec(
         name="Elliptic Envelope",
         description="Robust Gaussian fit (MCD) resistant to outliers during training.",
-        category="Distance",
+        category="Gaussian",
         family="covariance_elliptic",
         default=False,
         params=(ParamSpec("Contamination", 0.01, 0.30, 0.10, 0.01, "contamination"),),
@@ -115,7 +115,7 @@ DETECTOR_REGISTRY: dict[str, DetectorSpec] = {
     "Robust Covariance": DetectorSpec(
         name="Robust Covariance",
         description="Minimum Covariance Determinant ellipse; very robust covariance estimate.",
-        category="Distance",
+        category="Gaussian",
         family="covariance_robust",
         params=(ParamSpec("Contamination", 0.01, 0.30, 0.10, 0.01, "contamination"),),
     ),
@@ -129,10 +129,10 @@ DETECTOR_REGISTRY: dict[str, DetectorSpec] = {
             ParamSpec("Contamination", 0.01, 0.30, 0.10, 0.01, "contamination"),
         ),
     ),
-    "OC-SVM": DetectorSpec(
-        name="OC-SVM",
-        description="Learns a boundary that wraps the normal region; supports kernels.",
-        category="Boundary",
+    "OC-SVM (RBF)": DetectorSpec(
+        name="OC-SVM (RBF)",
+        description="Gaussian-kernel boundary that wraps the normal region smoothly.",
+        category="One-Class SVM",
         family="boundary_only",
         params=(
             ParamSpec("Nu", 0.01, 0.30, 0.05, 0.01, "nu"),
@@ -145,14 +145,30 @@ DETECTOR_REGISTRY: dict[str, DetectorSpec] = {
                 "gamma",
                 options=("auto", "scale", "0.01", "0.1", "0.5", "1.0"),
             ),
+        ),
+    ),
+    "OC-SVM (Linear)": DetectorSpec(
+        name="OC-SVM (Linear)",
+        description="Hyperplane boundary; fast and interpretable on separable data.",
+        category="One-Class SVM",
+        family="boundary_only",
+        params=(ParamSpec("Nu", 0.01, 0.30, 0.05, 0.01, "nu"),),
+    ),
+    "OC-SVM (Poly)": DetectorSpec(
+        name="OC-SVM (Poly)",
+        description="Polynomial-kernel boundary; flexible non-linear shapes.",
+        category="One-Class SVM",
+        family="boundary_only",
+        params=(
+            ParamSpec("Nu", 0.01, 0.30, 0.05, 0.01, "nu"),
             ParamSpec(
-                "Kernel",
+                "Gamma",
                 0,
                 0,
-                "rbf",
+                "auto",
                 0,
-                "kernel",
-                options=("rbf", "linear", "poly"),
+                "gamma",
+                options=("auto", "scale", "0.01", "0.1", "0.5", "1.0"),
             ),
         ),
     ),

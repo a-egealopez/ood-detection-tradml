@@ -10,12 +10,13 @@ from sklearn.datasets import (
     make_moons,
     make_swiss_roll,
 )
+from typing import ClassVar
 
 
 class SyntheticDatasetGenerator:
     """Genera datasets sintéticos con características conocidas para visualización."""
 
-    DATASETS = {
+    DATASETS: ClassVar[dict[str, str]] = {
         "Blobs (Gaussianas)": "blobs",
         "Moons (No-lineal)": "moons",
         "Circles (Anidados)": "circles",

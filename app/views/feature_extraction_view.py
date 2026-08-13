@@ -346,7 +346,7 @@ def _plot_interval_statistics(
             hoverinfo="skip",
         )
     )
-    sample_pairs = list(zip(ts_sorted.iloc[:-1], ts_sorted.iloc[1:]))[:6]
+    sample_pairs = list(zip(ts_sorted.iloc[:-1], ts_sorted.iloc[1:], strict=True))[:6]
     for t0, t1 in sample_pairs:
         timeline.add_shape(
             type="line",
@@ -436,7 +436,7 @@ def _load_stream(data_source: str) -> pd.DataFrame:
 
     try:
         df = load_all_events()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - DB may be missing until ingestion runs
         st.error(f"Could not load the database: {e}")
         st.stop()
 
@@ -579,7 +579,6 @@ def render_feature_extraction_view() -> None:
     ]
     method = clickable_cards(method_specs, key="fx_method")
 
-    METHOD_COLORS[method]
     col_viz, col_text = st.columns([1.15, 1], gap="medium")
     with col_viz:
         display_chart(_method_schematic(method), key=f"fx_schematic_{method}")

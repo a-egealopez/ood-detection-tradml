@@ -41,7 +41,7 @@ def _events_for_day(rng, date, events_mean, night_ratio, anomalous=False):
         + pd.Timedelta(
             hours=int(h), minutes=int(m), seconds=int(s), microseconds=int(u)
         )
-        for h, m, s, u in zip(hours, minutes, seconds, micros)
+        for h, m, s, u in zip(hours, minutes, seconds, micros, strict=True)
     ]
     timestamps.sort()
 

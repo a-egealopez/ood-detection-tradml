@@ -6,6 +6,7 @@ configuration change recomputes the affected houses (cached by a config signatur
 """
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,8 +24,11 @@ from components import (
     family_header,
     info_box,
     metric_row,
+    render_param_widgets,
 )
 from data_access import list_houses, load_house_events
+from detectors.factory import build_detector
+from mesh import GRID_RESOLUTION, score_mesh
 from streamlit_config import (
     DETECTOR_CATEGORIES,
     DETECTOR_DEFAULTS_LIST,
@@ -41,7 +45,6 @@ from theme import (
     SUCCESS,
     apply_layout,
     display_chart,
-    family_color,
 )
 
 from features import FeatureScaler, TemporalFeatureExtractor
@@ -116,7 +119,7 @@ def _resolved_houses(source: str) -> list[str]:
     """All houses available for the source — houses are never picked per-step."""
     try:
         return list(list_houses(source))
-    except Exception:
+    except Exception:  # noqa: BLE001 - DB may not exist until ingestion runs
         return []
 
 
@@ -127,14 +130,28 @@ def _toggle_detector(store_key: str, name: str) -> None:
     st.session_state[store_key] = [n for n in DETECTOR_NAMES if n in current]
 
 
+@dataclass
+class HouseFeatures:
+    """Scaled daily features of one house + the didactic PCA(2) projection.
+
+    ``train_n`` is the number of training rows (the 70% split) used to fit the
+    scaler and the PCA — only training rows feed the fits, never the test tail.
+    """
+
+    X_scaled: np.ndarray
+    X_2d: np.ndarray
+    pca: Any
+    dates: list[str]
+    train_n: int
+
+
 @st.cache_data(show_spinner=False)
-def _house_features_cached(source: str, house_id: str) -> tuple:
+def _house_features_cached(source: str, house_id: str) -> "HouseFeatures":
     """Scaled daily features for one house (cached).
 
-    Returns ``(X, X_2d, pca, dates, train_n)``. ``X_2d`` is a PCA(2) projection of
-    the scaled features, fitted on the training rows only — a didactic 2-D view
-    for the score-cloud charts (the mesh gradient maps back through ``pca``), not
-    the true decision boundary of any detector.
+    ``X_2d`` is a PCA(2) projection of the scaled features, fitted on the training
+    rows only — a didactic 2-D view for the score-cloud charts (the mesh gradient
+    maps back through ``pca``), not the true decision boundary of any detector.
     """
     from sklearn.decomposition import PCA
 
@@ -142,16 +159,16 @@ def _house_features_cached(source: str, house_id: str) -> tuple:
 
     df = load_house_events(source, house_id)
     if df is None or df.empty:
-        return (), (), None, [], 0
+        return HouseFeatures((), (), None, [], 0)
     extractor = TemporalFeatureExtractor()
     X, dates = extractor.extract(df)
     if len(X) < MIN_DAYS:
-        return (), (), None, [], 0
+        return HouseFeatures((), (), None, [], 0)
     X_scaled = FeatureScaler().fit_transform(X)
     train_n = max(1, int(len(X_scaled) * 0.7))
     pca = PCA(n_components=2).fit(X_scaled[:train_n])
     X_2d = pca.transform(X_scaled)
-    return X_scaled, X_2d, pca, list(dates), train_n
+    return HouseFeatures(X_scaled, X_2d, pca, list(dates), train_n)
 
 
 def _render_detector_card(
@@ -159,11 +176,7 @@ def _render_detector_card(
     preview_house: str,
     name: str,
     selected: bool,
-    X_scaled: np.ndarray,
-    X_2d: np.ndarray,
-    pca: Any,
-    dates: list,
-    train_n: int,
+    features: HouseFeatures,
 ) -> None:
     """One detector card: toggle header + chart (timeline / PCA cloud) + sliders."""
     spec = DETECTOR_REGISTRY[name]
@@ -179,9 +192,9 @@ def _render_detector_card(
 
     values = _detector_param_values(source, name)
     try:
-        detector = spec.detector_cls(**values)
-        detector.fit(X_scaled[:train_n])
-        _, scores = detector.predict(X_scaled)
+        detector = build_detector(name, values)
+        detector.fit(features.X_scaled[: features.train_n])
+        _, scores = detector.predict(features.X_scaled)
         view = st.segmented_control(
             "Visualization",
             ["Time", "Score cloud"],
@@ -190,33 +203,14 @@ def _render_detector_card(
             key=f"card_view_{source}_{preview_house}_{name}",
         )
         if view == "Score cloud":
-            fig = _build_detector_cloud(name, X_2d, pca, scores, detector)
+            fig = _build_detector_cloud(name, features.X_2d, features.pca, scores, detector)
         else:
-            fig = _build_detector_timeline(dates, scores, name)
+            fig = _build_detector_timeline(features.dates, scores, name)
         display_chart(fig, key=f"det_chart_{source}_{preview_house}_{name}")
     except Exception as exc:  # noqa: BLE001 - fragile deps (e.g. tick) may raise
         st.warning(f"⚠️ {name}: {exc}")
 
-    for p in spec.params:
-        key = f"adv_{source}_{name}_{p.kwarg}"
-        if p.options:
-            st.selectbox(
-                p.label,
-                list(p.options),
-                index=list(p.options).index(st.session_state.get(key, p.default)),
-                help=f"Default: {p.default}",
-                key=key,
-            )
-        else:
-            ptype = type(p.default)
-            st.slider(
-                p.label,
-                ptype(p.min),
-                ptype(p.max),
-                ptype(st.session_state.get(key, p.default)),
-                step=ptype(p.step),
-                key=key,
-            )
+    render_param_widgets(spec.params, f"adv_{source}_{name}", values, help=True)
 
 
 def _render_detect_panel(source: str) -> None:
@@ -232,8 +226,8 @@ def _render_detect_panel(source: str) -> None:
     preview_house = st.selectbox(
         "House to visualize", houses, key=f"preview_house_{source}"
     )
-    X_scaled, X_2d, pca, dates, train_n = _house_features_cached(source, preview_house)
-    if not len(dates):
+    features = _house_features_cached(source, preview_house)
+    if not len(features.dates):
         st.warning("Not enough days in this house to fit the detectors.")
         st.stop()
 
@@ -242,7 +236,7 @@ def _render_detect_panel(source: str) -> None:
     selected = set(st.session_state[f"det_names_{source}"])
 
     for category, names in DETECTOR_CATEGORIES.items():
-        family_header(category, family_color(category))
+        family_header(category, category)
         for row_start in range(0, len(names), 2):
             cols = st.columns(2, gap="medium")
             for offset, col in enumerate(cols):
@@ -255,11 +249,7 @@ def _render_detect_panel(source: str) -> None:
                         preview_house,
                         names[idx],
                         names[idx] in selected,
-                        X_scaled,
-                        X_2d,
-                        pca,
-                        dates,
-                        train_n,
+                        features,
                     )
 
     st.markdown("---")
@@ -381,7 +371,7 @@ def _render_house_results(source: str, house_view: str, r: Any) -> None:
     score_cols = [
         c for c in details.columns if c.endswith("_score") and c != "ensemble_score"
     ]
-    customdata = list(zip(*[details[c].round(3) for c in score_cols]))
+    customdata = list(zip(*[details[c].round(3) for c in score_cols], strict=True))
 
     fig_timeline = go.Figure(
         go.Scatter(
@@ -506,27 +496,6 @@ def _build_detector_timeline(dates: list, scores: np.ndarray, name: str) -> go.F
     return fig
 
 
-CLOUD_GRID = 60
-
-
-def _score_mesh(
-    detector: Any, pca: Any, x_range: tuple[float, float], y_range: tuple[float, float]
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Score a fitted detector over a mesh of the PCA plane.
-
-    Mesh points are generated in 2-D PCA space, mapped back to the 9-D feature
-    space with ``pca.inverse_transform`` and scored — so the background gradient
-    is the detector's *actual* score field, exactly like the 2D Playground.
-    """
-    xs = np.linspace(x_range[0], x_range[1], CLOUD_GRID)
-    ys = np.linspace(y_range[0], y_range[1], CLOUD_GRID)
-    xx, yy = np.meshgrid(xs, ys)
-    mesh_2d = np.column_stack([xx.ravel(), yy.ravel()])
-    mesh_full = pca.inverse_transform(mesh_2d)
-    _, grid_scores = detector.predict(mesh_full)
-    return xx, yy, grid_scores.reshape(xx.shape)
-
-
 def _build_detector_cloud(
     name: str,
     X_2d: np.ndarray,
@@ -545,12 +514,12 @@ def _build_detector_cloud(
     x_range = (X_2d[:, 0].min() - x_margin, X_2d[:, 0].max() + x_margin)
     y_range = (X_2d[:, 1].min() - y_margin, X_2d[:, 1].max() + y_margin)
 
-    _, _, zz = _score_mesh(detector, pca, x_range, y_range)
+    _, _, zz = score_mesh(detector, x_range, y_range, transform=pca.inverse_transform)
     fig = go.Figure()
     fig.add_trace(
         go.Contour(
-            x=np.linspace(x_range[0], x_range[1], CLOUD_GRID),
-            y=np.linspace(y_range[0], y_range[1], CLOUD_GRID),
+            x=np.linspace(x_range[0], x_range[1], GRID_RESOLUTION),
+            y=np.linspace(y_range[0], y_range[1], GRID_RESOLUTION),
             z=zz,
             colorscale=[[0, PRIMARY], [1, ANOMALY]],
             showscale=False,

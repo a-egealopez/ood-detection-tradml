@@ -28,6 +28,7 @@ ANOMALY_SOFT = "rgba(236, 72, 153, 0.55)"
 # Family colors: one accent per detector category (badges + section headers)
 # ----------------------------------------------------------------------------
 FAMILY_DENSITY = "#14b8a6"
+FAMILY_GAUSSIAN = "#6366f1"
 FAMILY_DISTANCE = "#8b5cf6"
 FAMILY_BOUNDARY = "#f59e0b"
 FAMILY_UNIVARIATE = "#6b7280"
@@ -36,8 +37,9 @@ FAMILY_SEQUENTIAL = "#f43f5e"
 
 FAMILY_COLORS = {
     "Density": FAMILY_DENSITY,
+    "Gaussian": FAMILY_GAUSSIAN,
     "Distance": FAMILY_DISTANCE,
-    "Boundary": FAMILY_BOUNDARY,
+    "One-Class SVM": FAMILY_BOUNDARY,
     "Univariate": FAMILY_UNIVARIATE,
     "Dimensionality": FAMILY_DIMENSIONALITY,
     "Sequential": FAMILY_SEQUENTIAL,
@@ -299,8 +301,29 @@ h1, h2, h3, h4 { color: var(--text-primary); letter-spacing: -0.01em; }
 """
 
 
+def _root_vars() -> str:
+    """Expose the Python design tokens as CSS custom properties.
+
+    ``BASE_CSS`` references ``var(--bg-canvas)``, ``var(--action-primary)``, etc.;
+    Streamlit only defines its own ``--primary-color`` family, so these must be
+    declared here — keeping ``theme.py`` the single source for both Python and CSS.
+    """
+    return (
+        ":root {"
+        f"--bg-canvas: {BG_CANVAS};"
+        f"--bg-surface: {BG_SURFACE};"
+        f"--text-primary: {TEXT};"
+        f"--text-muted: {MUTED};"
+        f"--border: {BORDER};"
+        f"--action-primary: {PRIMARY};"
+        "}"
+    )
+
+
 def inject_theme() -> None:
     """Inject the global CSS (call once, right after set_page_config)."""
     import streamlit as st
 
-    st.markdown(BASE_CSS, unsafe_allow_html=True)
+    st.markdown(
+        f"<style>{_root_vars()}\n{BASE_CSS}</style>", unsafe_allow_html=True
+    )

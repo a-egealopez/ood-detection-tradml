@@ -2,10 +2,11 @@
 
 Every chart draws the actual anomaly-score field of the fitted detector over a mesh
 (no approximations) and exposes per-detector sliders that retrain it in real time.
-Detectors are grouped by family (Density, Distance, Boundary, ...) so the grid reads
-as a visual taxonomy instead of a flat list.
+Detectors are grouped by family (Gaussian, Density, Distance, One-Class SVM, ...) so the grid
+reads as a visual taxonomy instead of a flat list.
 """
 
+import logging
 import sys
 from pathlib import Path
 from typing import Any
@@ -16,10 +17,12 @@ import streamlit as st
 from sklearn.metrics import roc_auc_score
 from sklearn.neighbors import NearestNeighbors
 
+logger = logging.getLogger(__name__)
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from components import (
+from components import (  # noqa: E402
     breadcrumb,
     detector_card,
     family_header,
@@ -27,8 +30,9 @@ from components import (
     read_param_values,
     section_title,
 )
-from streamlit_config import DETECTOR_REGISTRY
-from theme import (
+from mesh import score_mesh  # noqa: E402
+from streamlit_config import DETECTOR_REGISTRY  # noqa: E402
+from theme import (  # noqa: E402
     ANOMALY_SOFT,
     BG_CANVAS,
     BG_SURFACE,
@@ -37,10 +41,8 @@ from theme import (
     TEXT,
 )
 
-from detectors.factory import build_detector
-from teaching.datasets import SyntheticDatasetGenerator
-
-GRID_RESOLUTION = 60
+from detectors.factory import build_detector  # noqa: E402
+from teaching.datasets import SyntheticDatasetGenerator  # noqa: E402
 
 # Detectors suited to 2-D teaching grids (sequential models are excluded).
 TEACHING_DETECTORS = [
@@ -50,23 +52,12 @@ TEACHING_DETECTORS = [
 # One-line didactic hook per detector family, shown under each section header.
 CATEGORY_CAPTIONS = {
     "Density": "Detectors that isolate low-density regions of the space.",
-    "Distance": "Detectors that measure geometric distance to a fitted model.",
-    "Boundary": "One-class boundary learning with kernels.",
+    "Gaussian": "Detectors that model the normal data as a Gaussian distribution (empirical or robust covariance).",
+    "Distance": "Detectors that score points by distance to their nearest training neighbors.",
+    "One-Class SVM": "One-class boundary learning with kernels.",
     "Univariate": "Per-feature standard deviation from the training mean.",
     "Dimensionality": "Reconstruction error to the dominant linear subspace.",
 }
-
-
-def _score_grid(
-    detector: Any, x_range: tuple[float, float], y_range: tuple[float, float]
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Score a fitted detector over a mesh to draw its real decision boundary."""
-    xs = np.linspace(x_range[0], x_range[1], GRID_RESOLUTION)
-    ys = np.linspace(y_range[0], y_range[1], GRID_RESOLUTION)
-    xx, yy = np.meshgrid(xs, ys)
-    grid_points = np.column_stack([xx.ravel(), yy.ravel()])
-    _, grid_scores = detector.predict(grid_points)
-    return xx, yy, grid_scores.reshape(xx.shape)
 
 
 def _ellipse_points(
@@ -110,14 +101,14 @@ def _add_covariance_overlay(fig: go.Figure, detector: Any, family: str) -> None:
     try:
         if family == "covariance_empirical":
             mean, cov = detector.mean, detector.cov
-        elif family == "covariance_robust" or family == "covariance_elliptic":
+        elif family in ("covariance_robust", "covariance_elliptic"):
             mean = detector.model.location_
             cov = detector.model.covariance_
         else:
             return
         _add_ellipse_traces(fig, mean, cov)
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001 - overlay is cosmetic; never break the chart
+        logger.warning("Could not draw covariance overlay for %s", family)
 
 
 def _add_knn_illustration(
@@ -195,7 +186,7 @@ def _build_figure(
 
     fig = go.Figure()
 
-    xx, yy, zz = _score_grid(detector, x_range, y_range)
+    xx, yy, zz = score_mesh(detector, x_range, y_range)
     fig.add_trace(
         go.Contour(
             x=xx[0],
@@ -350,6 +341,11 @@ def _render_detector_card(
     spec = DETECTOR_REGISTRY[detector_name]
     prefix = f"{detector_name}_{dataset_key}_{n_samples}"
     params = read_param_values(spec.params, prefix)
+    # One global contamination control (top of the page) drives every detector's
+    # assumed anomaly ratio, so the per-card sliders don't repeat across the grid.
+    if "contamination" in params:
+        params["contamination"] = contamination
+    widget_params = tuple(p for p in spec.params if p.kwarg != "contamination")
 
     param_items = tuple(sorted(params.items()))
     result = _compute_card(
@@ -364,7 +360,7 @@ def _render_detector_card(
         description=spec.description,
         fig=result["fig"],
         auroc=result["auroc"],
-        params=spec.params,
+        params=widget_params,
         prefix=prefix,
         show_params=True,
         values=params,
@@ -435,6 +431,26 @@ def render_playground_view() -> None:
     st.markdown(f"**{dataset_description}**")
 
     st.markdown("---")
+    with st.expander("How to read these charts", expanded=True):
+        st.markdown(
+            """
+            **Blue background** = the detector's real anomaly score, evaluated over the whole space.
+            **Blue points** = predicted normal - **Red points** = predicted anomaly, intensity = confidence.
+            **Dotted ellipses** (Mahalanobis / Elliptic Envelope / Robust Covariance) = 1σ, 2σ and 3σ
+            contours of the estimated covariance; points outside the outer ellipse are the most atypical.
+            **Gold star + red lines** (KNN) = the most anomalous point and the k neighbors used to score it.
+            **Blue circles** (LOF) = radius to the k-th neighbor for a sample of points, showing how the
+            local density varies across the dataset.
+
+            **AUROC** = Area Under the ROC Curve - 1.0 perfect separation - 0.5 random - above 0.7 is a
+            strong detector for this geometry.
+
+            Move the sliders under each chart: the detector is retrained instantly with the new parameter.
+            **Anomalies %** (top) is shared by all detectors — it sets both the anomalies injected into
+            the dataset and each detector's assumed contamination ratio.
+            """
+        )
+
     section_title("All Detectors at a Glance")
     categories: list[str] = []
     for name in TEACHING_DETECTORS:
@@ -472,24 +488,6 @@ def render_playground_view() -> None:
         st.dataframe(ranking_data, width="stretch", hide_index=True)
 
     st.markdown("---")
-    with st.expander("Understanding the Visualizations"):
-        st.markdown(
-            """
-            **Blue background** = the detector's real anomaly score, evaluated over the whole space.
-            **Blue points** = predicted normal - **Red points** = predicted anomaly, intensity = confidence.
-            **Dotted ellipses** (Mahalanobis / Elliptic Envelope / Robust Covariance) = 1σ, 2σ and 3σ
-            contours of the estimated covariance; points outside the outer ellipse are the most atypical.
-            **Gold star + red lines** (KNN) = the most anomalous point and the k neighbors used to score it.
-            **Blue circles** (LOF) = radius to the k-th neighbor for a sample of points, showing how the
-            local density varies across the dataset.
-
-            **AUROC** = Area Under the ROC Curve - 1.0 perfect separation - 0.5 random - above 0.7 is a
-            strong detector for this geometry.
-
-            Move the sliders under each chart: the detector is retrained instantly with the new parameter.
-            """
-        )
-
     with st.expander("Dataset Information"):
         metric_row(
             [

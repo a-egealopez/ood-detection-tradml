@@ -2,6 +2,8 @@
 
 import streamlit as st
 
+from references import KIND_LABELS, STUDY_GUIDE, resources_for
+
 CONCEPTS = [
     (
         "Anomaly types (point / contextual / collective)",
@@ -92,16 +94,50 @@ CONCEPTS = [
 ]
 
 
+def _render_concept_references(title: str) -> None:
+    """Curated resources for one concept, as a bullet list with kind badges."""
+    resources = resources_for(title)
+    if not resources:
+        st.markdown("*References:* _(none yet)_")
+        return
+    st.markdown("*References:*")
+    for res in resources:
+        st.markdown(
+            f"- **{KIND_LABELS[res.kind]} · [{res.title}]({res.url})** — {res.note}"
+        )
+
+
 def _render_concepts_references() -> None:
     st.markdown(
-        "Each concept links to curated papers and forum threads. References are being "
-        "added progressively."
+        "Each concept links to curated papers, surveys, tutorials and tools — the same "
+        "library the detector cards use. All links were verified before being added."
     )
     for title, definition, why in CONCEPTS:
         st.markdown(f"**{title}**")
         st.markdown(f"*Definition:* {definition}")
         st.markdown(f"*Why it matters:* {why}")
-        st.markdown("*References:* `[papers]` `[forums]` — to be filled per concept.")
+        _render_concept_references(title)
+        st.markdown("---")
+
+
+def _render_study_guide() -> None:
+    """Suggested order to learn the whole stack, from one feature to the full pipeline."""
+    st.markdown(
+        "Suggested order to learn the whole stack, from a single feature up to the full "
+        "CASAS pipeline. Every stage links to the curated references of the concepts it "
+        "builds on."
+    )
+    for step in STUDY_GUIDE:
+        st.markdown(f"**{step.stage}. {step.title}**")
+        st.markdown(f"*Goal:* {step.goal}")
+        for topic in step.topics:
+            resources = resources_for(topic)
+            if not resources:
+                continue
+            chips = " · ".join(
+                f"[{KIND_LABELS[res.kind]} {res.title}]({res.url})" for res in resources
+            )
+            st.markdown(f"- **{topic}:** {chips}")
         st.markdown("---")
 
 
@@ -118,7 +154,7 @@ def render_documentation_view() -> None:
             boundary on synthetic 2-D data.
 
             Two learning tracks are exposed through a guided workflow
-            (**Data -> Features -> Detect**):
+            (**Data -> Features -> Detect -> Ensemble**):
             - **2D Playground**: inspect each detector's real decision boundary on
               synthetic datasets (blobs, moons, circles, swiss roll).
             - **CASAS track**: ingest smart-home event streams, extract daily features
@@ -136,7 +172,7 @@ def render_documentation_view() -> None:
             - **Elliptic Envelope**: robust Gaussian fitting (MCD).
             - **Robust Covariance**: Minimum Covariance Determinant.
             - **KNN**: distance to the k-th nearest neighbor.
-            - **One-Class SVM**: non-convex boundary learning.
+            - **One-Class SVM (RBF / Linear / Poly)**: non-convex boundary learning, one entry per kernel.
             - **LOF**: local density factor.
             - **Z-Score**: per-feature standard-deviation score.
             - **PCA Reconstruction**: reconstruction error to the dominant subspace.
@@ -204,3 +240,6 @@ def render_documentation_view() -> None:
 
     with st.expander("Concepts & References", expanded=False):
         _render_concepts_references()
+
+    with st.expander("Study Guide: a didactic path through the app", expanded=False):
+        _render_study_guide()

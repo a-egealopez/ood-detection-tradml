@@ -7,3 +7,6 @@ plotly>=5.17.0
 hmmlearn>=0.2.7
 tick>=0.7.1
 pyod>=1.1.1
+
+# dev / linting
+ruff>=0.16.2
