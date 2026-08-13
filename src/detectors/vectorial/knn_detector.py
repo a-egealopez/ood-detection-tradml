@@ -41,6 +41,6 @@ class KNNDetector:
         scores = (scores_raw - self.score_min) / (
             self.score_max - self.score_min + 1e-8
         )
-        scores = np.clip(scores, 0.0, None)
+        scores = np.clip(scores, 0.0, 1.0)
 
         return anomalies, scores

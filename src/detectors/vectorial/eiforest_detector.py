@@ -14,11 +14,13 @@ class ExtendedIForestDetector:
         n_estimators: int = 100,
         random_state: int = 42,
         sliced: bool = True,
+        max_samples: float | str = "auto",
     ):
         self.contamination = contamination
         self.n_estimators = n_estimators
         self.random_state = random_state
         self.sliced = sliced
+        self.max_samples = max_samples
         self.model = None
         self.score_min = None
         self.score_max = None
@@ -30,6 +32,7 @@ class ExtendedIForestDetector:
             "contamination": self.contamination,
             "n_estimators": self.n_estimators,
             "random_state": self.random_state,
+            "max_samples": self.max_samples,
         }
 
         # sklearn 1.3+ tiene sliced_path, sino ignorar
@@ -58,6 +61,6 @@ class ExtendedIForestDetector:
         scores = (raw_scores - self.score_min) / (
             self.score_max - self.score_min + 1e-8
         )
-        scores = np.clip(scores, 0.0, None)
+        scores = np.clip(scores, 0.0, 1.0)
 
         return anomalies, scores

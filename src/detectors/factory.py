@@ -46,6 +46,13 @@ def build_detector(name: str, params: dict) -> object:
         # Sliders return floats; integer parameters need casting back to int.
         if isinstance(value, float) and float(value).is_integer():
             value = int(value)
+        # Selectbox string params that encode a number (e.g. max_samples="0.5")
+        # become real floats so sklearn receives the numeric value.
+        elif isinstance(value, str):
+            try:
+                value = float(value)
+            except ValueError:
+                pass
         kwargs[key] = value
     return detector_cls(**kwargs)
 

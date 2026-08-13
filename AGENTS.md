@@ -39,15 +39,15 @@ Two learning tracks, both exposed in a single Streamlit app:
 ```
 ood-detection-tradml/
 ├── app/                        # Streamlit UI (thin layer; no ML logic here)
-│   ├── streamlit_app.py        # Entry point: top-level mode radio -> view dispatch
+│   ├── streamlit_app.py        # Entry point: guided 3-step workflow (Data->Features->Detect)
 │   ├── streamlit_config.py     # Unified detector registry + UI defaults (single source)
-│   ├── theme.py                # Shared Plotly theme (palette, layout, chart wrapper)
-│   ├── components.py           # Reusable UI blocks (section_title, metric_row, chart_pair)
+│   ├── theme.py                # Shared Plotly theme (palette, family colors, cards/badges)
+│   ├── components.py           # Reusable UI blocks (stepper, detector_card, badges, metrics)
 │   ├── data_access.py          # Cached DB access helpers
 │   └── views/                  # One module per view
-│       ├── teaching_view.py            # Teaching track: decision-boundary visualizations
+│       ├── playground_view.py          # 2D Playground: decision-boundary visualizations
 │       ├── feature_extraction_view.py  # Didactic view of the 3 event-driven extractors
-│       ├── casas_view.py               # CASAS track: sidebar config + run + result tabs
+│       ├── casas_view.py               # CASAS track: sidebar config + auto-run + result tabs
 │       └── documentation_view.py       # Documentation content
 ├── src/                        # Library code (importable as top-level package via src/ on sys.path)
 │   ├── config.py               # Paths, house/source constants, logging setup
@@ -128,10 +128,11 @@ def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 | Generate synthetic data | `python scripts/generate_test_fixtures.py` |
 | Load CASAS data to SQLite | `python src/ingestion/casas_loader.py --source real\|synthetic` |
 
-The root `venv/` exists but is **empty** (no packages installed). Run setup via the
-scripts or `pip install -r requirements.txt` before using the app/CLI. `tick` is the
-fragile dependency (native build); if it fails, the sequential Hawkes detector is the only
-consumer — install it last and consider making sequential imports lazy.
+The root `venv/` exists and is **populated** (all dependencies installed, including
+`tick`). If a fresh clone lacks it, run `scripts/run.sh` (bootstraps venv + deps) or
+`pip install -r requirements.txt` inside the venv. `tick` is the fragile dependency
+(native build); if it fails, the sequential Hawkes detector is the only consumer — install
+it last and consider making sequential imports lazy.
 
 ## Communication & token efficiency
 

@@ -8,17 +8,18 @@ and the Streamlit UI alike.
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from detectors import EnsembleDetector  # noqa: E402
-from detectors.factory import build_detectors  # noqa: E402
-from evaluation.synthetic_injection import evaluate_with_synthetic_anomalies  # noqa: E402
-from features import FeatureScaler, TemporalFeatureExtractor  # noqa: E402
+from detectors import EnsembleDetector
+from detectors.factory import build_detectors
+from evaluation.synthetic_injection import (
+    evaluate_with_synthetic_anomalies,
+)
+from features import FeatureScaler, TemporalFeatureExtractor
 
 EPSILON = 1e-10
 MIN_DAYS = 10
@@ -36,7 +37,9 @@ class HouseResult:
     ensemble: EnsembleDetector
     scaler: FeatureScaler
     n_holdout: int
-    synthetic_metrics: Optional[dict] = None
+    synthetic_metrics: dict | None = None
+    X_scaled: np.ndarray | None = None
+    X_holdout: np.ndarray | None = None
 
 
 def compute_weights(
@@ -84,7 +87,7 @@ def run_house(
     threshold_percentile: float = 90,
     contamination: float = 0.15,
     magnitude: float = 6.0,
-) -> tuple[Optional[HouseResult], Optional[str]]:
+) -> tuple[HouseResult | None, str | None]:
     """Run the full pipeline on one house. Returns ``(result, error)``.
 
     ``df`` must already be loaded (the app caches it); this function stays
@@ -140,5 +143,7 @@ def run_house(
         scaler=scaler,
         n_holdout=len(X_holdout),
         synthetic_metrics=synthetic_metrics,
+        X_scaled=X_scaled,
+        X_holdout=X_holdout,
     )
     return result, None

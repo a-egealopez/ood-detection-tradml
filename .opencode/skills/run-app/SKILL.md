@@ -30,7 +30,9 @@ Flags:
 
 ## Environment notes
 
-- The root `venv/` exists but is currently **empty**. The scripts install dependencies.
+- The root `venv/` exists and is **populated** (all dependencies installed, including
+  `tick`). Use `venv/bin/python` / `venv/bin/streamlit` (or `scripts/run.sh`, which
+  activates the venv). `streamlit` is **not** on the system PATH — never call it bare.
 - `tick` is the fragile dependency (native C++ build). If `pip install` fails on it,
   install everything else first, then `pip install tick` last; if it still fails, the
   sequential Hawkes detector is the only consumer (skip it for UI work).
@@ -38,13 +40,15 @@ Flags:
 
 ## App structure (entry point: `app/streamlit_app.py`)
 
-Top-level radio `data_mode` selects between:
+The app is a guided 3-step workflow (`1 · Data → 2 · Features → 3 · Detect`):
 
-- `🎓 Teaching: Synthetic Datasets` → `teaching_tab.py` (2-D decision boundaries).
-- `🏠 Synthetic CASAS Data` / `🏠 Real CASAS Data` → sub-radio between
-  "Feature Extraction Tutorial" (`feature_extraction_tab.py`) and the anomaly pipeline
-  (`_run_anomaly_pipeline(source)` in `streamlit_app.py`).
-- `📚 Documentation` → static markdown.
+- Step 1 (Data): choose the track — `2D Playground` (2-D decision boundaries on
+  synthetic datasets) or `CASAS Smart Home` (with a Synthetic/Real toggle).
+- Step 2 (Features): for CASAS, a guided walkthrough (origin → method → diagnostics)
+  of the 3 event-driven extractors; for 2D data it is a trivial no-op.
+- Step 3 (Detect): the 2D Playground detector grid, or the CASAS anomaly pipeline
+  (`app/views/casas_view.py`) with auto-run and Guided/Advanced modes.
+- Documentation & Concepts is always available as a sidebar expander.
 
 The anomaly pipeline reads houses from the SQLite DB (`data/sensor_data.db` for real,
 `data/synthetic/sensor_data.db` for synthetic), trains an ensemble on ~70% of daily

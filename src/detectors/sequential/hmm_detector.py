@@ -16,12 +16,16 @@ class HMMDetector:
         self.model = hmm.GaussianHMM(n_components=self.n_components, n_iter=100)
         self.model.fit(X)
 
-        self.model.score(X)
         scores_train = np.array([self.model.score(X[i : i + 1]) for i in range(len(X))])
 
         self.score_min = float(scores_train.min())
         self.score_max = float(scores_train.max())
-        self.threshold = np.percentile(scores_train, self.threshold_percentile)
+
+        # Umbral sobre el score normalizado (top threshold_percentile = anomalía).
+        scores_norm = (self.score_max - scores_train) / (
+            self.score_max - self.score_min + 1e-8
+        )
+        self.threshold = float(np.percentile(scores_norm, self.threshold_percentile))
 
         return self
 
@@ -36,8 +40,8 @@ class HMMDetector:
         scores_norm = (self.score_max - scores) / (
             self.score_max - self.score_min + 1e-8
         )
-        scores_norm = np.clip(scores_norm, 0.0, None)
+        scores_norm = np.clip(scores_norm, 0.0, 1.0)
 
-        anomalies = (scores_norm > (1 - self.threshold / 100)).astype(int)
+        anomalies = (scores_norm > self.threshold).astype(int)
 
         return anomalies, scores_norm

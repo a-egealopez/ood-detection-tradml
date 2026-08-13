@@ -8,8 +8,8 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from config import DB_PATH, db_path  # noqa: E402
-from ingestion.sqlite_manager import SQLiteDataManager  # noqa: E402
+from config import DB_PATH, db_path
+from ingestion.sqlite_manager import SQLiteDataManager
 
 
 @st.cache_data(show_spinner=False)

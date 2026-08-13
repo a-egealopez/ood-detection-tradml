@@ -1,7 +1,9 @@
-"""Teaching track: visualize each detector's real decision boundary on 2-D data.
+"""2D Playground: visualize each detector's real decision boundary on 2-D data.
 
 Every chart draws the actual anomaly-score field of the fitted detector over a mesh
 (no approximations) and exposes per-detector sliders that retrain it in real time.
+Detectors are grouped by family (Density, Distance, Boundary, ...) so the grid reads
+as a visual taxonomy instead of a flat list.
 """
 
 import sys
@@ -11,34 +13,48 @@ from typing import Any
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
-from sklearn.covariance import EllipticEnvelope as SkEllipticEnvelope
-from sklearn.covariance import EmpiricalCovariance, MinCovDet
 from sklearn.metrics import roc_auc_score
 from sklearn.neighbors import NearestNeighbors
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from components import metric_row, section_title  # noqa: E402
-from detectors.factory import build_detector  # noqa: E402
-from streamlit_config import DETECTOR_REGISTRY  # noqa: E402
-from teaching.datasets import SyntheticDatasetGenerator  # noqa: E402
-from theme import (  # noqa: E402
+from components import (
+    breadcrumb,
+    detector_card,
+    family_header,
+    metric_row,
+    read_param_values,
+    section_title,
+)
+from streamlit_config import DETECTOR_REGISTRY
+from theme import (
     ANOMALY_SOFT,
-    BACKGROUND,
+    BG_CANVAS,
+    BG_SURFACE,
+    BORDER,
     PRIMARY_SOFT,
     TEXT,
-    display_chart,
 )
+
+from detectors.factory import build_detector
+from teaching.datasets import SyntheticDatasetGenerator
 
 GRID_RESOLUTION = 60
 
 # Detectors suited to 2-D teaching grids (sequential models are excluded).
 TEACHING_DETECTORS = [
-    name
-    for name, spec in DETECTOR_REGISTRY.items()
-    if spec.category != "Sequential"
+    name for name, spec in DETECTOR_REGISTRY.items() if spec.category != "Sequential"
 ]
+
+# One-line didactic hook per detector family, shown under each section header.
+CATEGORY_CAPTIONS = {
+    "Density": "Detectors that isolate low-density regions of the space.",
+    "Distance": "Detectors that measure geometric distance to a fitted model.",
+    "Boundary": "One-class boundary learning with kernels.",
+    "Univariate": "Per-feature standard deviation from the training mean.",
+    "Dimensionality": "Reconstruction error to the dominant linear subspace.",
+}
 
 
 def _score_grid(
@@ -85,17 +101,21 @@ def _add_ellipse_traces(fig: go.Figure, mean: np.ndarray, cov: np.ndarray) -> No
         )
 
 
-def _add_covariance_overlay(fig: go.Figure, X: np.ndarray, family: str) -> None:
+def _add_covariance_overlay(fig: go.Figure, detector: Any, family: str) -> None:
+    """Draw the 1/2/3-sigma ellipses of the covariance THE DETECTOR fits.
+
+    Uses the fitted parameters stored on the detector itself (not a fresh refit),
+    so the ellipses match the detector's real decision surface.
+    """
     try:
         if family == "covariance_empirical":
-            model = EmpiricalCovariance().fit(X)
-            _add_ellipse_traces(fig, model.location_, model.covariance_)
-        elif family == "covariance_robust":
-            model = MinCovDet(random_state=42).fit(X)
-            _add_ellipse_traces(fig, model.location_, model.covariance_)
-        elif family == "covariance_elliptic":
-            model = SkEllipticEnvelope(random_state=42).fit(X)
-            _add_ellipse_traces(fig, model.location_, model.covariance_)
+            mean, cov = detector.mean, detector.cov
+        elif family == "covariance_robust" or family == "covariance_elliptic":
+            mean = detector.model.location_
+            cov = detector.model.covariance_
+        else:
+            return
+        _add_ellipse_traces(fig, mean, cov)
     except Exception:
         pass
 
@@ -181,16 +201,16 @@ def _build_figure(
             x=xx[0],
             y=yy[:, 0],
             z=zz,
-            colorscale="Blues",
+            colorscale="Inferno",
             showscale=False,
-            opacity=0.55,
+            opacity=0.6,
             contours={"showlines": False},
             hoverinfo="skip",
         )
     )
 
     if family in ("covariance_empirical", "covariance_robust", "covariance_elliptic"):
-        _add_covariance_overlay(fig, X, family)
+        _add_covariance_overlay(fig, detector, family)
     elif family == "knn":
         _add_knn_illustration(fig, X, scores, k_for_illustration)
     elif family == "lof":
@@ -221,7 +241,7 @@ def _build_figure(
                 marker={
                     "size": 7,
                     "color": scores[anomaly_mask],
-                    "colorscale": "Reds",
+                    "colorscale": "Magenta",
                     "showscale": False,
                     "cmin": 0,
                     "cmax": 1,
@@ -233,8 +253,18 @@ def _build_figure(
         )
 
     fig.update_layout(
-        xaxis={"showgrid": False, "zeroline": False, "visible": False, "range": x_range},
-        yaxis={"showgrid": False, "zeroline": False, "visible": False, "range": y_range},
+        xaxis={
+            "showgrid": False,
+            "zeroline": False,
+            "visible": False,
+            "range": x_range,
+        },
+        yaxis={
+            "showgrid": False,
+            "zeroline": False,
+            "visible": False,
+            "range": y_range,
+        },
         hovermode=False,
         showlegend=False,
         margin={"l": 10, "r": 10, "t": 50, "b": 10},
@@ -246,12 +276,13 @@ def _build_figure(
             "x": 0.5,
             "xanchor": "center",
         },
-        template="plotly_white",
-        font={"color": TEXT},
-        paper_bgcolor=BACKGROUND,
-        plot_bgcolor=BACKGROUND,
+        font={"color": TEXT, "size": 11},
+        paper_bgcolor=BG_SURFACE,
+        plot_bgcolor=BG_CANVAS,
         height=380,
     )
+    fig.update_xaxes(gridcolor=BORDER, zerolinecolor=BORDER)
+    fig.update_yaxes(gridcolor=BORDER, zerolinecolor=BORDER)
     return fig
 
 
@@ -268,69 +299,107 @@ def _fit_and_score(
     return {"detector": detector, "y_pred": y_pred, "scores": scores, "auroc": auroc}
 
 
-def _render_detector_grid(X: np.ndarray, y_true: np.ndarray, dataset_key: str, n_samples: int) -> None:
-    dataset_signature = (dataset_key, n_samples, int((y_true == 1).sum()))
+@st.cache_data(show_spinner=False, max_entries=256)
+def _load_dataset(
+    dataset_key: str, n_samples: int, contamination: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Deterministic dataset for the cache key; the same seed/args as the page."""
+    X, y_true, _ = SyntheticDatasetGenerator.generate(
+        dataset_key,
+        n_samples=n_samples,
+        contamination=contamination,
+        random_state=42,
+    )
+    return X, y_true
 
-    for row_start in range(0, len(TEACHING_DETECTORS), 2):
+
+@st.cache_data(show_spinner=False, max_entries=256)
+def _compute_card(
+    detector_name: str,
+    param_items: tuple[tuple[str, Any], ...],
+    dataset_key: str,
+    n_samples: int,
+    contamination: float,
+) -> dict[str, Any]:
+    """Fit, score and build the figure for one detector card.
+
+    Cached keyed on the full parameter + dataset signature, so dragging a slider
+    only recomputes this card while sibling cards reuse their cached figures.
+    """
+    X, y_true = _load_dataset(dataset_key, n_samples, contamination)
+    params = dict(param_items)
+    result = _fit_and_score(detector_name, params, X, y_true)
+    fig = _build_figure(
+        detector_name,
+        result["detector"],
+        X,
+        result["y_pred"],
+        result["scores"],
+        int(params.get("n_neighbors", 5)),
+    )
+    return {"auroc": result["auroc"], "fig": fig}
+
+
+def _render_detector_card(
+    detector_name: str,
+    dataset_key: str,
+    n_samples: int,
+    contamination: float,
+) -> None:
+    """Fit, chart and render one detector as a card (st.cache_data keyed by config)."""
+    spec = DETECTOR_REGISTRY[detector_name]
+    prefix = f"{detector_name}_{dataset_key}_{n_samples}"
+    params = read_param_values(spec.params, prefix)
+
+    param_items = tuple(sorted(params.items()))
+    result = _compute_card(
+        detector_name, param_items, dataset_key, n_samples, contamination
+    )
+    # Mirror into session state so the ranking section can reuse the same AUROC.
+    st.session_state[f"cache_{detector_name}"] = result
+
+    detector_card(
+        name=detector_name,
+        category=spec.category,
+        description=spec.description,
+        fig=result["fig"],
+        auroc=result["auroc"],
+        params=spec.params,
+        prefix=prefix,
+        show_params=True,
+        values=params,
+        chart_key=f"chart_{prefix}",
+    )
+
+
+def _render_family_group(
+    category: str,
+    dataset_key: str,
+    n_samples: int,
+    contamination: float,
+) -> None:
+    """Render all detectors of one family with a colored header, two per row."""
+    names = [n for n in TEACHING_DETECTORS if DETECTOR_REGISTRY[n].category == category]
+    if not names:
+        return
+
+    family_header(category, category, CATEGORY_CAPTIONS.get(category, ""))
+
+    for row_start in range(0, len(names), 2):
         cols = st.columns(2, gap="medium")
         for col_offset, col in enumerate(cols):
             idx = row_start + col_offset
-            if idx >= len(TEACHING_DETECTORS):
+            if idx >= len(names):
                 break
-            detector_name = TEACHING_DETECTORS[idx]
-            spec = DETECTOR_REGISTRY[detector_name]
-
             with col:
-                params: dict[str, float] = {}
-                for param in spec.params:
-                    widget_key = f"slider_{detector_name}_{param.kwarg}_{dataset_key}_{n_samples}"
-                    params[param.kwarg] = st.session_state.get(widget_key, param.default)
-
-                result_signature = (
-                    detector_name,
-                    dataset_signature,
-                    tuple(sorted(params.items())),
-                )
-                cache_key = f"cache_{detector_name}"
-                if st.session_state.get(f"{cache_key}_sig") != result_signature:
-                    st.session_state[cache_key] = _fit_and_score(
-                        detector_name, params, X, y_true
-                    )
-                    st.session_state[f"{cache_key}_sig"] = result_signature
-                result = st.session_state[cache_key]
-
-                k_illustration = int(params.get("n_neighbors", 5))
-                fig = _build_figure(
-                    detector_name,
-                    result["detector"],
-                    X,
-                    result["y_pred"],
-                    result["scores"],
-                    k_illustration,
-                )
-                display_chart(fig, key=f"chart_{detector_name}_{dataset_key}_{n_samples}")
-
-                st.caption(
-                    f"AUROC: {result['auroc']:.3f} - {spec.description}"
-                )
-
-                for param in spec.params:
-                    widget_key = f"slider_{detector_name}_{param.kwarg}_{dataset_key}_{n_samples}"
-                    value_type = type(param.default)
-                    st.slider(
-                        param.label,
-                        value_type(param.min),
-                        value_type(param.max),
-                        value_type(params[param.kwarg]),
-                        step=value_type(param.step),
-                        key=widget_key,
-                    )
+                _render_detector_card(names[idx], dataset_key, n_samples, contamination)
 
 
-def render_teaching_view() -> None:
+def render_playground_view() -> None:
+    breadcrumb([("Data", True), ("Features", True), ("Detect", True)])
     st.markdown(
         """
-        ## Learning: How Anomaly Detectors Work
+        ## 2D Playground: How Anomaly Detectors Work
 
         Pick a dataset geometry and observe how each algorithm draws its own decision
         boundary. The blue background is the anomaly score the detector itself assigns
@@ -367,7 +436,15 @@ def render_teaching_view() -> None:
 
     st.markdown("---")
     section_title("All Detectors at a Glance")
-    _render_detector_grid(X, y_true, dataset_key_internal, n_samples)
+    categories: list[str] = []
+    for name in TEACHING_DETECTORS:
+        category = DETECTOR_REGISTRY[name].category
+        if category not in categories:
+            categories.append(category)
+    for category in categories:
+        _render_family_group(
+            category, dataset_key_internal, n_samples, contamination_global
+        )
 
     st.markdown("---")
     section_title("Detector Ranking by AUROC")
@@ -386,9 +463,13 @@ def render_teaching_view() -> None:
         "Detector": [name for name, _ in ranking],
         "AUROC": [f"{r['auroc']:.3f}" for _, r in ranking],
     }
+    st.caption(
+        "Didactic, not a verdict: a high AUROC here means the detector matches THIS "
+        "geometry well. Real data is rarely this clean."
+    )
     _, mid, _ = st.columns([0.5, 2, 0.5])
     with mid:
-        st.dataframe(ranking_data, use_container_width=True, hide_index=True)
+        st.dataframe(ranking_data, width="stretch", hide_index=True)
 
     st.markdown("---")
     with st.expander("Understanding the Visualizations"):

@@ -1,6 +1,108 @@
-"""Documentation view: project overview, architecture and methodology."""
+"""Documentation view: project overview, architecture, methodology and references."""
 
 import streamlit as st
+
+CONCEPTS = [
+    (
+        "Anomaly types (point / contextual / collective)",
+        (
+            "A point anomaly is a single atypical event; contextual anomalies are only "
+            "anomalous in a given context (e.g. an unusual hour); collective anomalies "
+            "break the pattern of a whole sequence."
+        ),
+        (
+            "Each detector targets a subset of these — the feature-extraction tutorial "
+            "states which type each method can catch."
+        ),
+    ),
+    (
+        "Window aggregation features",
+        (
+            "Daily statistics over event counts (n_events, activity_hours, entropy_hourly, "
+            "night_activity, ...) that summarize the hourly distribution of a day."
+        ),
+        (
+            "The workhorse of activity recognition on binary sensors; the 9 features used "
+            "by the pipeline live in `TemporalFeatureExtractor`."
+        ),
+    ),
+    (
+        "Inter-event interval (IEI), CV and Fano factor",
+        (
+            "The times between consecutive events viewed as a point process. The "
+            "coefficient of variation (std / mean) and the Fano factor (variance / mean) "
+            "distinguish regular, Poisson-like and bursty processes."
+        ),
+        (
+            "A single gap flags a point anomaly; a day with an atypical rhythm flags a "
+            "collective one."
+        ),
+    ),
+    (
+        "N-gram / Markov transition entropy",
+        (
+            "A first-order Markov chain over triggered sensors; the entropy of the "
+            "transition matrix measures how predictable the event sequence is."
+        ),
+        (
+            "Catches routine breaks even when every individual sensor and interval looks "
+            "normal."
+        ),
+    ),
+    (
+        "Hidden Markov Model (HMM)",
+        (
+            "A latent-state model for sequential data; each state emits a Gaussian over "
+            "the features and regime changes are scored."
+        ),
+        "Used in the sequential track to detect changes in activity regime across days.",
+    ),
+    (
+        "Hawkes self-exciting process",
+        (
+            "A temporal point process where past events raise the instantaneous rate of "
+            "future events (excitation with an exponential decay)."
+        ),
+        (
+            "Models bursts of sensor activity; the current implementation is illustrative "
+            "(scores the aggregated rhythm, not a full intensity fit)."
+        ),
+    ),
+    (
+        "AUROC",
+        (
+            "Area under the receiver-operating-characteristic curve: probability that a "
+            "random anomaly scores higher than a random normal point (0.5 random, 1.0 "
+            "perfect)."
+        ),
+        "Primary quality metric; above 0.75 is considered good for this domain.",
+    ),
+    (
+        "Synthetic anomaly injection",
+        (
+            "Because the CASAS data has no real labels, anomalies are injected on the "
+            "holdout split (±magnitude std on a subset of features) and detection is scored "
+            "against those labels."
+        ),
+        (
+            "A proxy for real anomalies — good for tuning, never a guarantee on production "
+            "data."
+        ),
+    ),
+]
+
+
+def _render_concepts_references() -> None:
+    st.markdown(
+        "Each concept links to curated papers and forum threads. References are being "
+        "added progressively."
+    )
+    for title, definition, why in CONCEPTS:
+        st.markdown(f"**{title}**")
+        st.markdown(f"*Definition:* {definition}")
+        st.markdown(f"*Why it matters:* {why}")
+        st.markdown("*References:* `[papers]` `[forums]` — to be filled per concept.")
+        st.markdown("---")
 
 
 def render_documentation_view() -> None:
@@ -15,8 +117,9 @@ def render_documentation_view() -> None:
             offers a didactic track to understand how each algorithm draws its decision
             boundary on synthetic 2-D data.
 
-            Two learning tracks are exposed:
-            - **Teaching track**: inspect each detector's real decision boundary on
+            Two learning tracks are exposed through a guided workflow
+            (**Data -> Features -> Detect**):
+            - **2D Playground**: inspect each detector's real decision boundary on
               synthetic datasets (blobs, moons, circles, swiss roll).
             - **CASAS track**: ingest smart-home event streams, extract daily features
               and score them with an ensemble of vectorial and sequential detectors.
@@ -98,3 +201,6 @@ def render_documentation_view() -> None:
             proxy evaluation used to tune hyperparameters.
             """
         )
+
+    with st.expander("Concepts & References", expanded=False):
+        _render_concepts_references()

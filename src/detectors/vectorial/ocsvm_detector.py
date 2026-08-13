@@ -16,7 +16,8 @@ class OCSVMDetector:
         self.model = OneClassSVM(nu=self.nu, kernel=self.kernel, gamma=self.gamma)
         self.model.fit(X)
 
-        scores_train = self.model.decision_function(X)
+        # decision_function is positive for inliers -> negate so that higher = anomaly.
+        scores_train = -self.model.decision_function(X)
         self.score_min = float(scores_train.min())
         self.score_max = float(scores_train.max())
 
@@ -30,10 +31,10 @@ class OCSVMDetector:
         predictions = self.model.predict(X)
         anomalies = (predictions == -1).astype(int)
 
-        scores_raw = self.model.decision_function(X)
+        scores_raw = -self.model.decision_function(X)
         scores = (scores_raw - self.score_min) / (
             self.score_max - self.score_min + 1e-8
         )
-        scores = np.clip(scores, 0.0, None)
+        scores = np.clip(scores, 0.0, 1.0)
 
         return anomalies, scores

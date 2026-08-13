@@ -11,12 +11,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from detectors.factory import DETECTOR_FACTORY  # noqa: E402
+from detectors.factory import DETECTOR_FACTORY
 
 
 @dataclass(frozen=True)
 class ParamSpec:
-    """Slider definition for a single detector parameter."""
+    """Widget definition for a single detector parameter.
+
+    If ``options`` is provided the widget is a selectbox (enum param), otherwise a
+    slider. The value is passed to the detector constructor as ``kwarg``.
+    """
 
     label: str
     min: float
@@ -24,6 +28,7 @@ class ParamSpec:
     default: float
     step: float
     kwarg: str  # keyword passed to the detector constructor
+    options: tuple[str, ...] = ()  # non-empty -> render a selectbox instead of a slider
 
 
 @dataclass(frozen=True)
@@ -59,6 +64,15 @@ DETECTOR_REGISTRY: dict[str, DetectorSpec] = {
         params=(
             ParamSpec("Contamination", 0.01, 0.20, 0.05, 0.01, "contamination"),
             ParamSpec("Trees", 20, 300, 100, 10, "n_estimators"),
+            ParamSpec(
+                "Max samples",
+                0,
+                0,
+                "auto",
+                0,
+                "max_samples",
+                options=("auto", "0.2", "0.4", "0.6", "0.8", "1.0"),
+            ),
         ),
     ),
     "Extended IForest": DetectorSpec(
@@ -69,6 +83,15 @@ DETECTOR_REGISTRY: dict[str, DetectorSpec] = {
         params=(
             ParamSpec("Contamination", 0.01, 0.20, 0.05, 0.01, "contamination"),
             ParamSpec("Trees", 20, 300, 100, 10, "n_estimators"),
+            ParamSpec(
+                "Max samples",
+                0,
+                0,
+                "auto",
+                0,
+                "max_samples",
+                options=("auto", "0.2", "0.4", "0.6", "0.8", "1.0"),
+            ),
         ),
     ),
     "Mahalanobis": DetectorSpec(
@@ -77,14 +100,16 @@ DETECTOR_REGISTRY: dict[str, DetectorSpec] = {
         category="Distance",
         family="covariance_empirical",
         default=True,
-        params=(ParamSpec("Threshold percentile", 80, 99, 95, 1, "threshold_percentile"),),
+        params=(
+            ParamSpec("Threshold percentile", 80, 99, 95, 1, "threshold_percentile"),
+        ),
     ),
     "Elliptic Envelope": DetectorSpec(
         name="Elliptic Envelope",
         description="Robust Gaussian fit (MCD) resistant to outliers during training.",
         category="Distance",
         family="covariance_elliptic",
-        default=True,
+        default=False,
         params=(ParamSpec("Contamination", 0.01, 0.30, 0.10, 0.01, "contamination"),),
     ),
     "Robust Covariance": DetectorSpec(
@@ -99,21 +124,47 @@ DETECTOR_REGISTRY: dict[str, DetectorSpec] = {
         description="Distance to the k-th nearest neighbor; distribution-agnostic.",
         category="Distance",
         family="knn",
-        params=(ParamSpec("Neighbors", 3, 50, 5, 1, "n_neighbors"),),
+        params=(
+            ParamSpec("Neighbors", 3, 50, 5, 1, "n_neighbors"),
+            ParamSpec("Contamination", 0.01, 0.30, 0.10, 0.01, "contamination"),
+        ),
     ),
     "OC-SVM": DetectorSpec(
         name="OC-SVM",
         description="Learns a boundary that wraps the normal region; supports kernels.",
         category="Boundary",
         family="boundary_only",
-        params=(ParamSpec("Nu", 0.01, 0.30, 0.05, 0.01, "nu"),),
+        params=(
+            ParamSpec("Nu", 0.01, 0.30, 0.05, 0.01, "nu"),
+            ParamSpec(
+                "Gamma",
+                0,
+                0,
+                "auto",
+                0,
+                "gamma",
+                options=("auto", "scale", "0.01", "0.1", "0.5", "1.0"),
+            ),
+            ParamSpec(
+                "Kernel",
+                0,
+                0,
+                "rbf",
+                0,
+                "kernel",
+                options=("rbf", "linear", "poly"),
+            ),
+        ),
     ),
     "LOF": DetectorSpec(
         name="LOF",
         description="Local density factor; compares local vs. global density.",
         category="Density",
         family="lof",
-        params=(ParamSpec("Neighbors", 5, 50, 20, 1, "n_neighbors"),),
+        params=(
+            ParamSpec("Neighbors", 5, 50, 20, 1, "n_neighbors"),
+            ParamSpec("Contamination", 0.01, 0.30, 0.05, 0.01, "contamination"),
+        ),
     ),
     "Z-Score": DetectorSpec(
         name="Z-Score",
@@ -152,6 +203,21 @@ DETECTOR_NAMES: list[str] = list(DETECTOR_REGISTRY.keys())
 DETECTOR_DEFAULTS_LIST: list[str] = [
     name for name, spec in DETECTOR_REGISTRY.items() if spec.default
 ]
+
+# Guided-mode preset: one detector per major family (density, covariance, local
+# density, sequential). Advanced mode lets the user pick any of the 12.
+SIMPLE_MODE_DETECTORS: list[str] = [
+    "Isolation Forest",
+    "Mahalanobis",
+    "LOF",
+    "HMM",
+]
+
+SIMPLE_MODE_EXPLANATION = (
+    "One detector per family: **Isolation Forest** (density), **Mahalanobis** "
+    "(covariance), **LOF** (local density) and **HMM** (temporal patterns). "
+    "Defaults are fine — switch to *Advanced* to tune everything."
+)
 
 DETECTOR_CATEGORIES: dict[str, list[str]] = {}
 for spec in DETECTOR_REGISTRY.values():
