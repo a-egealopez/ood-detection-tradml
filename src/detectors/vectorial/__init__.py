@@ -1,19 +1,23 @@
-from .iforest_detector import IsolationForestDetector
 from .eiforest_detector import ExtendedIForestDetector
-from .mahalanobis_detector import MahalanobisDetector
 from .elliptic_envelope_detector import EllipticEnvelopeDetector
-from .robust_covariance_detector import RobustCovarianceDetector
+from .iforest_detector import IsolationForestDetector
 from .knn_detector import KNNDetector
-from .ocsvm_detector import OCSVMDetector
 from .lof_detector import LOFDetector
+from .mahalanobis_detector import MahalanobisDetector
+from .ocsvm_detector import OCSVMDetector
+from .pca_reconstruction_detector import PCAReconstructionDetector
+from .robust_covariance_detector import RobustCovarianceDetector
+from .zscore_detector import ZScoreDetector
 
 __all__ = [
-    "IsolationForestDetector",
-    "ExtendedIForestDetector",
-    "MahalanobisDetector",
     "EllipticEnvelopeDetector",
-    "RobustCovarianceDetector",
+    "ExtendedIForestDetector",
+    "IsolationForestDetector",
     "KNNDetector",
-    "OCSVMDetector",
     "LOFDetector",
+    "MahalanobisDetector",
+    "OCSVMDetector",
+    "PCAReconstructionDetector",
+    "RobustCovarianceDetector",
+    "ZScoreDetector",
 ]

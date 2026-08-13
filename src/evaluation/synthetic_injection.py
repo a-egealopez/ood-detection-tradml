@@ -19,7 +19,7 @@ def inject_synthetic_anomalies(
     X = np.asarray(X, dtype=float)
     n_samples, n_features = X.shape
 
-    n_synthetic = max(1, int(round(n_samples * contamination)))
+    n_synthetic = max(1, round(n_samples * contamination))
     synthetic_idx = rng.choice(n_samples, size=n_synthetic, replace=False)
 
     X_eval = X.copy()
@@ -30,7 +30,9 @@ def inject_synthetic_anomalies(
         n_to_perturb = rng.integers(1, n_features + 1)
         features_to_perturb = rng.choice(n_features, size=n_to_perturb, replace=False)
         signs = rng.choice([-1.0, 1.0], size=n_to_perturb)
-        X_eval[idx, features_to_perturb] += signs * magnitude * feature_std[features_to_perturb]
+        X_eval[idx, features_to_perturb] += (
+            signs * magnitude * feature_std[features_to_perturb]
+        )
 
     y_synthetic = np.zeros(n_samples, dtype=int)
     y_synthetic[synthetic_idx] = 1
@@ -46,10 +48,15 @@ def evaluate_with_synthetic_anomalies(
     random_state: int = 42,
 ) -> dict:
     if len(X_holdout) < 5:
-        raise ValueError("Se necesitan al menos 5 muestras de holdout para evaluar de forma estable")
+        raise ValueError(
+            "Se necesitan al menos 5 muestras de holdout para evaluar de forma estable"
+        )
 
     X_eval, y_synthetic = inject_synthetic_anomalies(
-        X_holdout, contamination=contamination, magnitude=magnitude, random_state=random_state
+        X_holdout,
+        contamination=contamination,
+        magnitude=magnitude,
+        random_state=random_state,
     )
 
     y_pred, scores, _ = ensemble.predict(X_eval)
@@ -76,19 +83,32 @@ def describe_scores(scores: np.ndarray, anomalies: np.ndarray) -> dict:
 
 
 if __name__ == "__main__":
-    from detectors import ZScoreDetector, IsolationForestDetector, PCAReconstructionDetector, EnsembleDetector
+    from detectors import (
+        EnsembleDetector,
+        IsolationForestDetector,
+        PCAReconstructionDetector,
+        ZScoreDetector,
+    )
 
     np.random.seed(0)
     X_train = np.random.randn(120, 5)
     X_holdout = np.random.randn(40, 5)
 
-    ensemble = EnsembleDetector(detectors=[
-        ZScoreDetector(), IsolationForestDetector(), PCAReconstructionDetector(),
-    ])
+    ensemble = EnsembleDetector(
+        detectors=[
+            ZScoreDetector(),
+            IsolationForestDetector(),
+            PCAReconstructionDetector(),
+        ]
+    )
     ensemble.fit(X_train)
 
-    metrics_weak = evaluate_with_synthetic_anomalies(ensemble, X_holdout, contamination=0.15, magnitude=1.0)
-    metrics_strong = evaluate_with_synthetic_anomalies(ensemble, X_holdout, contamination=0.15, magnitude=8.0)
+    metrics_weak = evaluate_with_synthetic_anomalies(
+        ensemble, X_holdout, contamination=0.15, magnitude=1.0
+    )
+    metrics_strong = evaluate_with_synthetic_anomalies(
+        ensemble, X_holdout, contamination=0.15, magnitude=8.0
+    )
 
     print(f" AUROC anomalía sutil (magnitude=1.0): {metrics_weak['auroc']:.3f}")
     print(f" AUROC anomalía fuerte (magnitude=8.0): {metrics_strong['auroc']:.3f}")

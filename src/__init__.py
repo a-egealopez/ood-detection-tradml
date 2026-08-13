@@ -1,25 +1,25 @@
 from .config import (
-    setup_logging,
-    PROJECT_ROOT,
     DATA_DIR,
     DB_PATH,
     HOUSES,
-    SOURCES,
+    PROJECT_ROOT,
     REAL_DATA_DIR,
+    SOURCES,
     SYNTHETIC_DATA_DIR,
-    raw_csv_path,
     db_path,
+    raw_csv_path,
+    setup_logging,
 )
 
 __all__ = [
-    "setup_logging",
-    "PROJECT_ROOT",
     "DATA_DIR",
     "DB_PATH",
     "HOUSES",
-    "SOURCES",
+    "PROJECT_ROOT",
     "REAL_DATA_DIR",
+    "SOURCES",
     "SYNTHETIC_DATA_DIR",
-    "raw_csv_path",
     "db_path",
+    "raw_csv_path",
+    "setup_logging",
 ]

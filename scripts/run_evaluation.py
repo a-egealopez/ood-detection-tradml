@@ -6,30 +6,67 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from ingestion.sqlite_manager import SQLiteDataManager
-from features import FeatureScaler, TemporalFeatureExtractor
-from detectors import ZScoreDetector, IsolationForestDetector, PCAReconstructionDetector, EnsembleDetector
-from evaluation.synthetic_injection import evaluate_with_synthetic_anomalies, describe_scores
 from config import db_path, setup_logging
+from detectors import (
+    EnsembleDetector,
+    IsolationForestDetector,
+    PCAReconstructionDetector,
+    ZScoreDetector,
+)
+from evaluation.synthetic_injection import (
+    describe_scores,
+    evaluate_with_synthetic_anomalies,
+)
+from features import FeatureScaler, TemporalFeatureExtractor
+from ingestion.sqlite_manager import SQLiteDataManager
 
 logger = setup_logging()
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument(
-        "--source", choices=["real", "synthetic"], default="real",
+        "--source",
+        choices=["real", "synthetic"],
+        default="real",
         help="Qué fuente de datos evaluar: 'real' (data/real/) o 'synthetic' (data/synthetic/)",
     )
-    parser.add_argument("--houses", nargs="+", default=None, help="Casas a evaluar (por defecto, todas las que haya en la BD)")
-    parser.add_argument("--train-split", type=float, default=0.7, help="Fracción de días usados para entrenar (resto = holdout)")
+    parser.add_argument(
+        "--houses",
+        nargs="+",
+        default=None,
+        help="Casas a evaluar (por defecto, todas las que haya en la BD)",
+    )
+    parser.add_argument(
+        "--train-split",
+        type=float,
+        default=0.7,
+        help="Fracción de días usados para entrenar (resto = holdout)",
+    )
     parser.add_argument("--zscore-threshold", type=float, default=3.0)
     parser.add_argument("--iforest-contamination", type=float, default=0.05)
     parser.add_argument("--pca-components", type=int, default=5)
     parser.add_argument("--ensemble-threshold-percentile", type=float, default=90)
-    parser.add_argument("--contamination", type=float, default=0.15, help="%% de días del holdout con anomalía sintética inyectada")
-    parser.add_argument("--magnitude", type=float, default=6.0, help="Magnitud (en desv. estándar) de la anomalía sintética")
-    parser.add_argument("--output", type=str, default=None, help="Ruta CSV donde guardar el reporte (opcional)")
+    parser.add_argument(
+        "--contamination",
+        type=float,
+        default=0.15,
+        help="%% de días del holdout con anomalía sintética inyectada",
+    )
+    parser.add_argument(
+        "--magnitude",
+        type=float,
+        default=6.0,
+        help="Magnitud (en desv. estándar) de la anomalía sintética",
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Ruta CSV donde guardar el reporte (opcional)",
+    )
     return parser.parse_args()
 
 
@@ -39,7 +76,7 @@ def run_house(db: SQLiteDataManager, house_id: str, args) -> dict:
         return {"house_id": house_id, "status": "sin datos"}
 
     extractor = TemporalFeatureExtractor()
-    X, dates = extractor.extract(df_house)
+    X, _dates = extractor.extract(df_house)
 
     if len(X) < 10:
         return {"house_id": house_id, "status": f"muy pocos días ({len(X)}), se omite"}
@@ -72,16 +109,23 @@ def run_house(db: SQLiteDataManager, house_id: str, args) -> dict:
 
     if len(X_holdout) >= 5:
         synth = evaluate_with_synthetic_anomalies(
-            ensemble, X_holdout, contamination=args.contamination, magnitude=args.magnitude
+            ensemble,
+            X_holdout,
+            contamination=args.contamination,
+            magnitude=args.magnitude,
         )
-        row.update({
-            "synthetic_precision": synth["precision"],
-            "synthetic_recall": synth["recall"],
-            "synthetic_f1": synth["f1"],
-            "synthetic_auroc": synth["auroc"],
-        })
+        row.update(
+            {
+                "synthetic_precision": synth["precision"],
+                "synthetic_recall": synth["recall"],
+                "synthetic_f1": synth["f1"],
+                "synthetic_auroc": synth["auroc"],
+            }
+        )
     else:
-        row["status"] = f"holdout demasiado chico ({len(X_holdout)} días) para métricas sintéticas"
+        row["status"] = (
+            f"holdout demasiado chico ({len(X_holdout)} días) para métricas sintéticas"
+        )
 
     return row
 
@@ -129,7 +173,9 @@ def main():
                 "--pca-components, o revisar si hay suficientes días de holdout."
             )
         else:
-            print("✓ El ensemble detecta de forma consistente las anomalías sintéticas inyectadas.")
+            print(
+                "✓ El ensemble detecta de forma consistente las anomalías sintéticas inyectadas."
+            )
 
     if args.output:
         out_path = Path(args.output)

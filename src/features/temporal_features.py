@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from typing import ClassVar
 
 EPSILON = 1e-10
 
@@ -15,7 +16,7 @@ def _calculate_entropy(counts: np.ndarray) -> float:
 
 
 class TemporalFeatureExtractor:
-    FEATURE_NAMES = [
+    FEATURE_NAMES: ClassVar[list[str]] = [
         "n_events",
         "n_sensors",
         "activity_hours",
@@ -73,7 +74,9 @@ class TemporalFeatureExtractor:
         events_per_sensor = group.groupby("sensor_id").size()
         event_frequency_std = float(events_per_sensor.std()) if n_sensors > 1 else 0.0
 
-        hourly_counts = group.groupby("hour").size().reindex(range(24), fill_value=0).values
+        hourly_counts = (
+            group.groupby("hour").size().reindex(range(24), fill_value=0).values
+        )
         entropy_hourly = _calculate_entropy(hourly_counts)
         entropy_sensor = _calculate_entropy(events_per_sensor.values)
 
@@ -89,7 +92,7 @@ class TemporalFeatureExtractor:
             entropy_sensor,
         ]
 
-    def rolling_features(self, df: pd.DataFrame, window_size: int = None):
+    def rolling_features(self, df: pd.DataFrame, window_size: int | None = None):
         window_size = window_size or self.window_size
 
         df = df.copy()
@@ -122,17 +125,22 @@ if __name__ == "__main__":
     np.random.seed(0)
     n = 200
     base_time = pd.Timestamp("2024-01-01")
-    timestamps = [base_time + pd.Timedelta(minutes=int(m)) for m in np.random.randint(0, 60 * 24 * 3, n)]
+    timestamps = [
+        base_time + pd.Timedelta(minutes=int(m))
+        for m in np.random.randint(0, 60 * 24 * 3, n)
+    ]
     sensors = np.random.choice(["Bedroom", "Kitchen", "OutsideDoor"], size=n)
     event_types = np.random.choice(["ON", "OFF"], size=n)
     values = (event_types == "ON").astype(float)
 
-    df = pd.DataFrame({
-        "timestamp": timestamps,
-        "sensor_id": sensors,
-        "event_type": event_types,
-        "value": values,
-    })
+    df = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "sensor_id": sensors,
+            "event_type": event_types,
+            "value": values,
+        }
+    )
 
     extractor = TemporalFeatureExtractor()
     X, dates = extractor.extract(df)
