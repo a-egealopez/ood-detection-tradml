@@ -24,7 +24,7 @@ class KNNDetector(BaseDetector):
         self.model.fit(X)
 
         distances, _ = self.model.kneighbors(X)
-        scores_train = distances[:, -1]  # Distancia al k-ésimo vecino
+        scores_train = distances[:, -1]  # Distance to the k-th nearest training neighbor
 
         self.score_min = float(scores_train.min())
         self.score_max = float(scores_train.max())

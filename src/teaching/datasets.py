@@ -1,6 +1,6 @@
 """
-Generador de datasets sintéticos didácticos para enseñanza de anomalías.
-Utiliza scikit-learn para generar datos con geometrías conocidas.
+Didactic synthetic dataset generator for anomaly teaching.
+Uses scikit-learn to generate data with known geometries.
 """
 
 import numpy as np
@@ -16,7 +16,7 @@ from detectors.constants import DEFAULT_RANDOM_STATE
 
 
 class SyntheticDatasetGenerator:
-    """Genera datasets sintéticos con características conocidas para visualización."""
+    """Generate synthetic datasets with known characteristics for visualization."""
 
     DATASETS: ClassVar[dict[str, str]] = {
         "Blobs (Gaussianas)": "blobs",
@@ -31,14 +31,13 @@ class SyntheticDatasetGenerator:
         n_samples: int = 300,
         contamination: float = 0.1,
         random_state: int = DEFAULT_RANDOM_STATE,
-    ) -> tuple[np.ndarray, np.ndarray, str]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
-        Genera dataset sintético con anomalías inyectadas.
+        Generate a synthetic dataset with injected anomalies.
 
         Returns:
-            X: (n_samples, 2) - datos 2D
-            y_true: (n_samples,) - etiquetas reales (0=normal, 1=anomalía)
-            description: str - descripción del dataset
+            X: (n_samples, 2) - 2D data
+            y_true: (n_samples,) - true labels (0=normal, 1=anomaly)
         """
 
         rng = np.random.RandomState(random_state)
@@ -58,7 +57,7 @@ class SyntheticDatasetGenerator:
     def _blobs(
         n_samples: int, contamination: float, rng: np.random.RandomState
     ) -> tuple:
-        """3 clusters gaussianos + anomalías aleatorias."""
+        """Three Gaussian clusters + random anomalies."""
         centers = np.array([[-5, -5], [0, 0], [5, 5]])
         n_inliers = int(n_samples * (1 - contamination))
         n_outliers = n_samples - n_inliers
@@ -78,14 +77,13 @@ class SyntheticDatasetGenerator:
         perm = rng.permutation(len(X))
         X, y_true = X[perm], y_true[perm]
 
-        desc = f"3 clusters gaussianos con {contamination * 100:.0f}% ruido aleatorio"
-        return X, y_true, desc
+        return X, y_true
 
     @staticmethod
     def _moons(
         n_samples: int, contamination: float, rng: np.random.RandomState
     ) -> tuple:
-        """Dos semi-lunas entrecruzadas + anomalías."""
+        """Two interleaved half-moons + anomalies."""
         n_inliers = int(n_samples * (1 - contamination))
         n_outliers = n_samples - n_inliers
 
@@ -99,14 +97,13 @@ class SyntheticDatasetGenerator:
         perm = rng.permutation(len(X))
         X, y_true = X[perm], y_true[perm]
 
-        desc = f"Dos semi-lunas con {contamination * 100:.0f}% puntos aislados"
-        return X, y_true, desc
+        return X, y_true
 
     @staticmethod
     def _circles(
         n_samples: int, contamination: float, rng: np.random.RandomState
     ) -> tuple:
-        """Círculos concéntricos + anomalías."""
+        """Concentric circles + anomalies."""
         n_inliers = int(n_samples * (1 - contamination))
         n_outliers = n_samples - n_inliers
 
@@ -125,19 +122,18 @@ class SyntheticDatasetGenerator:
         perm = rng.permutation(len(X))
         X, y_true = X[perm], y_true[perm]
 
-        desc = f"Círculos anidados con {contamination * 100:.0f}% puntos interiores"
-        return X, y_true, desc
+        return X, y_true
 
     @staticmethod
     def _swiss_roll(
         n_samples: int, contamination: float, rng: np.random.RandomState
     ) -> tuple:
-        """Variedad suiza (manifold 3D proyectada a 2D) + anomalías."""
+        """Swiss roll (3D manifold projected to 2D) + anomalies."""
         n_inliers = int(n_samples * (1 - contamination))
         n_outliers = n_samples - n_inliers
 
         X_3d, _ = make_swiss_roll(n_samples=n_inliers, noise=0.5, random_state=rng)
-        # Proyectar a 2D usando las primeras 2 dims
+        # Project the 3D manifold to 2D using dimensions 0 and 2.
         X_inliers = X_3d[:, [0, 2]]
 
         X_outliers = rng.uniform(-15, 15, size=(n_outliers, 2))
@@ -148,13 +144,12 @@ class SyntheticDatasetGenerator:
         perm = rng.permutation(len(X))
         X, y_true = X[perm], y_true[perm]
 
-        desc = f"Variedad suiza con {contamination * 100:.0f}% ruido uniforme"
-        return X, y_true, desc
+        return X, y_true
 
 
 if __name__ == "__main__":
     gen = SyntheticDatasetGenerator()
     for name, key in gen.DATASETS.items():
-        X, y, desc = gen.generate(key, n_samples=300, contamination=0.1)
-        print(f"{name}: {desc}")
+        X, y = gen.generate(key, n_samples=300, contamination=0.1)
+        print(f"{name}")
         print(f"  Shape: {X.shape}, Anomalías: {y.sum()} / {len(y)}\n")

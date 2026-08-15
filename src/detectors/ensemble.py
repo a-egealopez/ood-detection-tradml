@@ -17,8 +17,8 @@ class EnsembleDetector:
         """Combine per-detector scores into one anomaly verdict.
 
         ensemble_mode:
-            - "soft": Weighted Sum Rule (scores ∈ [0,1] → weighted sum)
-            - "hard": Majority Voting Rule — each detector votes 1/0 with its own
+            - "soft": Weighted Sum Rule (scores in [0,1] -> weighted sum)
+            - "hard": Majority Voting Rule - each detector votes 1/0 with its own
               learned threshold; a day is flagged when a weighted majority votes
               anomaly (score_final > 0.5).
 
@@ -70,30 +70,30 @@ class EnsembleDetector:
 
     def _predict_raw(self, X: np.ndarray):
         """Per-detector scores and the combined score (before the threshold)."""
-        scores_all = []
-        votes_all = []
+        scores_per_detector = []
+        votes_per_detector = []
         for detector in self.detectors:
             # Each detector's binary verdict uses its OWN learned threshold
             # (captured during fit); the continuous score is kept for the
             # soft mode and for the details table.
             anomalies, score = detector.predict(X)
-            scores_all.append(score)
-            votes_all.append(anomalies.astype(float))
+            scores_per_detector.append(score)
+            votes_per_detector.append(anomalies.astype(float))
 
-        scores_array = np.array(scores_all)  # shape: (n_detectors, n_samples)
+        scores_array = np.array(scores_per_detector)  # shape: (n_detectors, n_samples)
 
         if self.ensemble_mode == "soft":
-            # Sum Rule: S_ensemble(x) = Σ w_i * s_i(x)
+            # Sum rule: S_ensemble(x) = sum_i w_i * s_i(x)
             score_final = scores_array.T @ self.weights
         elif self.ensemble_mode == "hard":
             # Majority Voting: each detector contributes its binary vote
             # (0/1) and the ensemble score is the weighted vote share in [0,1].
-            votes = np.array(votes_all)  # shape: (n_detectors, n_samples)
+            votes = np.array(votes_per_detector)  # shape: (n_detectors, n_samples)
             score_final = votes.T @ self.weights
         else:
             raise ValueError(f"Unknown ensemble mode: {self.ensemble_mode}")
 
-        return scores_all, score_final
+        return scores_per_detector, score_final
 
     def predict(self, X: np.ndarray):
         """Predict with the ensemble threshold."""

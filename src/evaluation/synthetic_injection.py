@@ -21,22 +21,24 @@ def inject_synthetic_anomalies(
     n_samples, n_features = X.shape
 
     n_synthetic = max(1, round(n_samples * contamination))
-    synthetic_idx = rng.choice(n_samples, size=n_synthetic, replace=False)
+    anomaly_indices = rng.choice(n_samples, size=n_synthetic, replace=False)
 
     X_eval = X.copy()
     feature_std = X.std(axis=0)
     feature_std[feature_std == 0] = 1.0
 
-    for idx in synthetic_idx:
-        n_to_perturb = rng.integers(1, n_features + 1)
-        features_to_perturb = rng.choice(n_features, size=n_to_perturb, replace=False)
-        signs = rng.choice([-1.0, 1.0], size=n_to_perturb)
+    for idx in anomaly_indices:
+        n_features_to_perturb = rng.integers(1, n_features + 1)
+        features_to_perturb = rng.choice(
+            n_features, size=n_features_to_perturb, replace=False
+        )
+        signs = rng.choice([-1.0, 1.0], size=n_features_to_perturb)
         X_eval[idx, features_to_perturb] += (
             signs * magnitude * feature_std[features_to_perturb]
         )
 
     y_synthetic = np.zeros(n_samples, dtype=int)
-    y_synthetic[synthetic_idx] = 1
+    y_synthetic[anomaly_indices] = 1
 
     return X_eval, y_synthetic
 
@@ -50,7 +52,7 @@ def evaluate_with_synthetic_anomalies(
 ) -> dict:
     if len(X_holdout) < 5:
         raise ValueError(
-            "Se necesitan al menos 5 muestras de holdout para evaluar de forma estable"
+            "At least 5 holdout samples are required for a stable evaluation"
         )
 
     X_eval, y_synthetic = inject_synthetic_anomalies(
@@ -111,8 +113,8 @@ if __name__ == "__main__":
         ensemble, X_holdout, contamination=0.15, magnitude=8.0
     )
 
-    print(f" AUROC anomalía sutil (magnitude=1.0): {metrics_weak['auroc']:.3f}")
-    print(f" AUROC anomalía fuerte (magnitude=8.0): {metrics_strong['auroc']:.3f}")
+    print(f" AUROC subtle anomaly (magnitude=1.0): {metrics_weak['auroc']:.3f}")
+    print(f" AUROC strong anomaly (magnitude=8.0): {metrics_strong['auroc']:.3f}")
 
     assert metrics_strong["auroc"] >= metrics_weak["auroc"]
-    print(" Validación OK")
+    print(" Validation OK")

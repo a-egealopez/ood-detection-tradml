@@ -23,7 +23,7 @@ class MahalanobisDetector(BaseDetector):
         try:
             self.cov_inv = np.linalg.inv(self.cov)
         except np.linalg.LinAlgError:
-            # Singular: regularizar
+            # Singular covariance: add a small diagonal jitter to make it invertible.
             self.cov += np.eye(self.cov.shape[0]) * EPSILON
             self.cov_inv = np.linalg.inv(self.cov)
 

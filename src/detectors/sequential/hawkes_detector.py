@@ -74,19 +74,21 @@ class HawkesDetector(BaseDetector):
         state = np.zeros(n_features)  # g_j(t): current excitation per feature
         neg_ll = np.zeros(n_days)
         for t in range(n_days):
-            intensity = self.baseline_ + state  # λ_j(t) = μ_j + g_j(t)
+            intensity = self.baseline_ + state  # lambda_j(t) = mu_j + g_j(t)
             intensity = np.clip(intensity, EPSILON, None)
 
-            x = X[t]
-            # Full Poisson log-likelihood: x·log(λ) - λ - log(x!). The factorial
+            x_t = X[t]
+            # Full Poisson log-likelihood: x*log(lambda) - lambda - log(x!). The factorial
             # term is essential: without it, large x would look *more* likely,
             # inverting the anomaly signal (a burst day must be penalized, not
             # rewarded). Higher neg_ll = more anomalous.
-            loglik = x @ np.log(intensity) - intensity.sum() - gammaln(x + 1).sum()
+            loglik = (
+                x_t @ np.log(intensity) - intensity.sum() - gammaln(x_t + 1).sum()
+            )
             neg_ll[t] = -loglik
 
             # Ogata forward recursion for the next step.
-            state = np.exp(-self.beta_) * (state + self.alpha_ * x)
+            state = np.exp(-self.beta_) * (state + self.alpha_ * x_t)
 
         return neg_ll
 
@@ -128,13 +130,13 @@ if __name__ == "__main__":
     X_normal = rng.poisson(5, size=(200, 4)).astype(float)
     X_anom = rng.poisson(60, size=(30, 4)).astype(float)  # burst days: 12x activity
 
-    det = HawkesDetector()
-    det.fit(X_normal)
-    anomalies, scores = det.predict(np.vstack([X_normal, X_anom]))
+    detector = HawkesDetector()
+    detector.fit(X_normal)
+    anomalies, scores = detector.predict(np.vstack([X_normal, X_anom]))
 
     n_detected = anomalies[-len(X_anom):].sum()
     print(f" Anomalies detected: {n_detected} / {len(X_anom)}")
     print(f" Score range: [{scores.min():.3f}, {scores.max():.3f}]")
     assert n_detected >= 0.6 * len(X_anom), "should detect high-activity anomalies"
-    det._assert_unit_range(scores)
+    detector._assert_unit_range(scores)
     print(" Validation OK")

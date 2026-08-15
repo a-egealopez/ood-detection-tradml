@@ -123,12 +123,12 @@ def _schematic_window() -> go.Figure:
 
 def _schematic_iei() -> go.Figure:
     """Consecutive events with their gaps (intervals), then an interval histogram."""
-    t = np.array([0, 1.2, 2.1, 4.4, 5.0, 8.3])
+    event_times = np.array([0, 1.2, 2.1, 4.4, 5.0, 8.3])
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
-            x=t,
-            y=[0] * len(t),
+            x=event_times,
+            y=[0] * len(event_times),
             mode="markers",
             marker={
                 "size": 10,
@@ -139,7 +139,7 @@ def _schematic_iei() -> go.Figure:
             hoverinfo="skip",
         )
     )
-    for t0, t1 in itertools.pairwise(t):
+    for t0, t1 in itertools.pairwise(event_times):
         fig.add_shape(
             type="line",
             x0=t0,
@@ -471,8 +471,8 @@ def _plot_next_event(
             hoverinfo="skip",
         )
     )
-    for i, tr in enumerate(transitions):
-        rare = tr["rare"]
+    for i, transition in enumerate(transitions):
+        rare = transition["rare"]
         strip.add_annotation(
             x=i + 1,
             y=0,
@@ -492,16 +492,17 @@ def _plot_next_event(
     strip.update_xaxes(visible=False)
     strip.update_yaxes(visible=False, range=[-1, 1])
 
-    logprobs = [tr["logprob"] for tr in diag["transitions"]]
+    logprobs = [transition["logprob"] for transition in diag["transitions"]]
     colors = [
-        ANOMALY if tr["rare"] else PRIMARY_SOFT for tr in diag["transitions"]
+        ANOMALY if transition["rare"] else PRIMARY_SOFT
+        for transition in diag["transitions"]
     ]
     bar = go.Figure(
         go.Bar(
             x=list(range(len(logprobs))),
             y=logprobs,
             marker_color=colors,
-            customdata=[tr["to"] for tr in diag["transitions"]],
+            customdata=[transition["to"] for transition in diag["transitions"]],
             hovertemplate="→ %{customdata}<br>log P = %{y:.2f}<extra></extra>",
         )
     )

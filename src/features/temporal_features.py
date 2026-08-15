@@ -36,12 +36,12 @@ class TemporalFeatureExtractor:
         return extract_by_date(df, self._features_for_group)
 
     def _features_for_group(self, group: pd.DataFrame) -> list:
-        agg = daily_aggregates(
+        aggregates = daily_aggregates(
             group,
             include_peak_hour=True,
             include_frequency_std=True,
         )
-        return [agg[key] for key in self._ORDER]
+        return [aggregates[key] for key in self._ORDER]
 
 
 if __name__ == "__main__":

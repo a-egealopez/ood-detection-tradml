@@ -4,7 +4,7 @@ The guided workflow starts here: choose between the teaching track (toy 2-D
 datasets) and the CASAS track (smart-home event streams), then configure the
 data origin (synthetic demo stream vs. real loaded database). The choice is
 stored in ``session_state`` and reused by the Features / Detect / Ensemble
-steps, so no config lives in this module — only the render logic.
+steps, so no config lives in this module - only the render logic.
 """
 
 import sys
@@ -39,7 +39,7 @@ DATA_CASAS = "CASAS Smart Home"
 
 def _preview_2d() -> go.Figure:
     """Tiny blob scatter previewing the 2D Playground geometry."""
-    X, y, _ = SyntheticDatasetGenerator.generate(
+    X, y = SyntheticDatasetGenerator.generate(
         "blobs",
         n_samples=180,
         contamination=0.12,
@@ -142,12 +142,12 @@ def _render_casas_demo_config() -> None:
     )
 
     with st.container(border=True):
-        c1, c2, c3 = st.columns(3, gap="medium")
-        with c1:
+        col_days, col_sensors, col_events = st.columns(3, gap="medium")
+        with col_days:
             st.slider(
                 "Days", 2, 10, int(st.session_state.get("fx_days", 4)), key="fx_days"
             )
-        with c2:
+        with col_sensors:
             st.slider(
                 "Sensors",
                 2,
@@ -155,7 +155,7 @@ def _render_casas_demo_config() -> None:
                 int(st.session_state.get("fx_sensors", 3)),
                 key="fx_sensors",
             )
-        with c3:
+        with col_events:
             st.slider(
                 "Events / day",
                 20,

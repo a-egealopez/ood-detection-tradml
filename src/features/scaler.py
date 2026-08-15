@@ -32,10 +32,10 @@ if __name__ == "__main__":
     scaler = FeatureScaler()
     X_scaled = scaler.fit_transform(X)
 
-    print(f"✓ Mean after scaling: {X_scaled.mean(axis=0).round(4)}")
-    print(f"✓ Std after scaling:   {X_scaled.std(axis=0).round(4)}")
+    print(f"Mean after scaling: {X_scaled.mean(axis=0).round(4)}")
+    print(f"Std after scaling:   {X_scaled.std(axis=0).round(4)}")
 
     assert np.allclose(X_scaled.mean(axis=0), 0, atol=1e-6)
     assert np.allclose(X_scaled.std(axis=0), 1, atol=1e-6)
 
-    print("✓ All validations passed")
+    print("All validations passed")

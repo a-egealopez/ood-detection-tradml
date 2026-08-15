@@ -57,9 +57,9 @@ def as_float_array(X) -> np.ndarray:
     this choke point fails with a clear message instead of silently propagating
     NaNs through means, covariances or SVMs.
     """
-    arr = np.asarray(X, dtype=float)
-    if not np.isfinite(arr).all():
+    float_array = np.asarray(X, dtype=float)
+    if not np.isfinite(float_array).all():
         raise ValueError(
             "Input contains NaN or infinite values; detectors require finite data."
         )
-    return arr
+    return float_array

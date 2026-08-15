@@ -18,12 +18,12 @@ _DB_FILENAMES = {"real": "sensor_data.db", "synthetic": "sensor_data_synthetic.d
 
 def _validate_source(source: str) -> None:
     if source not in SOURCES:
-        raise ValueError(f"Fuente desconocida: '{source}'. Válidas: {SOURCES}")
+        raise ValueError(f"Unknown source: '{source}'. Valid: {SOURCES}")
 
 
 def raw_csv_path(house: str, source: str = "real") -> Path:
     if house not in HOUSES:
-        raise ValueError(f"Casa desconocida: '{house}'. Válidas: {HOUSES}")
+        raise ValueError(f"Unknown house: '{house}'. Valid: {HOUSES}")
     _validate_source(source)
     data_dir = REAL_DATA_DIR if source == "real" else SYNTHETIC_DATA_DIR
     return data_dir / f"casas_{house}_raw.csv"

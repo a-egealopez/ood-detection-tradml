@@ -93,5 +93,5 @@ if __name__ == "__main__":
     for house_id, profile in HOUSE_PROFILES.items():
         path = generate_house_csv(house_id, **profile)
         print(
-            f"✓ [{house_id}] {path} ({profile['n_days']} días, ~{profile['events_mean']} eventos/día)"
+            f"[{house_id}] {path} ({profile['n_days']} días, ~{profile['events_mean']} eventos/día)"
         )

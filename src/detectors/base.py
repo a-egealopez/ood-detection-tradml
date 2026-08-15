@@ -20,8 +20,6 @@ from detectors.score_utils import minmax_normalize
 class BaseDetector:
     """Lightweight shared behaviour for all detectors."""
 
-    # Subclasses implement _fit and _predict; they inherit the helpers below.
-
     @staticmethod
     def _to_float(X) -> np.ndarray:
         """Coerce input to a float numpy array (the shape detectors expect)."""
@@ -29,10 +27,11 @@ class BaseDetector:
 
     @staticmethod
     def _check_fitted(fitted_attr: str) -> None:
-        """Raise RuntimeError if a detector was used before ``fit``.
+        """Raise RuntimeError for use-before-fit.
 
-        ``fitted_attr`` is the instance attribute (e.g. ``"model"``) that is set
-        only after ``fit``. Subclasses pass whichever guard flag they use.
+        ``fitted_attr`` is the attribute a subclass uses as its fitted guard
+        (e.g. ``"model"``); callers invoke this helper only after detecting that
+        the guard is unset, so it unconditionally raises.
         """
         raise RuntimeError("You must call fit() before predict()")
 

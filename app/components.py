@@ -135,7 +135,7 @@ def _click_key(key: str) -> str:
 
 
 def clickable_cards(specs: list[dict], key: str, gap: str = "medium") -> str:
-    """Card grid whose cards ARE the control — click anywhere on a card to select it.
+    """Card grid whose cards ARE the control - click anywhere on a card to select it.
 
     Each spec: ``id``, ``icon``, ``title``, ``description``, ``color``, optional
     ``badge`` and optional ``figure`` (preview rendered under the card). The state
@@ -208,7 +208,7 @@ PATTERN_EXPLANATIONS: dict[str, str] = {
 def pattern_preview(pattern: str) -> go.Figure:
     """One-day activity profile of a synthetic temporal pattern.
 
-    Hourly event count computed from the generator, night hours shaded — a
+    Hourly event count computed from the generator, night hours shaded - a
     clear one-glance read of what each pattern (regular/bursty/day_night) looks
     like. Used as the preview inside the picker cards (Data step).
     """

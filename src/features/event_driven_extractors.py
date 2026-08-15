@@ -1,54 +1,23 @@
 """
 event_driven_extractors.py
 
-Extracción de vectores de características para series temporales basadas en eventos
-(sensores IoT ON/OFF, logs de actividad), agrupando por ventana (por defecto: día).
+Feature-vector extraction for event-based time series (IoT sensor ON/OFF events,
+activity logs), aggregated per window (by default: one day).
 
-Tres enfoques con literatura propia dentro del análisis de event-driven time series.
-Cada uno se anota con el tipo de anomalía que permite detectar, según la taxonomía
-estándar de Chandola, Banerjee & Kumar, "Anomaly Detection: A Survey" (ACM Computing
-Surveys, 2009): puntual (point), contextual (conditional) y colectiva (collective).
-Para las anomalías de secuencia se usa además Chandola, Banerjee & Kumar, "Anomaly
-Detection for Discrete Sequences: A Survey" (IEEE TKDE, 2012).
+Three extractors, each targeting different anomaly types under the standard
+taxonomy of Chandola, Banerjee & Kumar, "Anomaly Detection: A Survey" (ACM
+Computing Surveys, 2009): point, contextual, and collective. Sequence anomalies
+follow Chandola et al., "Anomaly Detection for Discrete Sequences: A Survey"
+(IEEE TKDE, 2012).
 
-1. WindowAggregationExtractor -> CONTEXTUAL + COLECTIVA (a nivel de ventana/día)
-   Resume todo un día en estadísticas agregadas (conteo, entropía, % nocturno). El
-   contexto (hora/franja) está codificado explícitamente en features como
-   `night_activity_ratio`, por lo que el mismo volumen de eventos puede ser normal
-   de día y anómalo de noche (anomalía CONTEXTUAL, formalizada por Song et al.,
-   "Conditional Anomaly Detection", 2007). Como cada vector representa el día
-   completo, un día que se salga del patrón habitual es una anomalía COLECTIVA: no
-   hay un evento individual culpable, es el conjunto del día.
-   NO sirve para anomalías puntuales: al agregar, el detalle de un evento suelto se
-   pierde (un único evento raro puede pasar desapercibido en el promedio del día).
+1. WindowAggregationExtractor -> CONTEXTUAL + COLLECTIVE (day level)
+2. IntervalStatisticsExtractor -> POINT (raw intervals) or COLLECTIVE (per window)
+3. NGramTransitionExtractor -> COLLECTIVE / SEQUENCE (pattern-based)
 
-2. IntervalStatisticsExtractor -> PUNTUAL (a nivel de intervalo crudo) o
-   COLECTIVA (si se agrega por ventana, como hace `extract()`)
-   Analiza el tiempo entre eventos consecutivos (point process / renewal process;
-   Fano, 1947). Los valores crudos de `diagnostics()["intervals_seconds"]` son
-   directamente aptos para detección PUNTUAL: un único hueco anómalamente largo o
-   corto es un outlier puntual en sí mismo (p.ej., "el sensor dejó de disparar 6h").
-   Al agregar por día (mean/CV/Fano factor, que es lo que hace `extract()`), el
-   vector resultante deja de señalar el instante exacto y pasa a describir el
-   "ritmo" de todo el día -> ahí la anomalía que se detecta es COLECTIVA (un día
-   demasiado regular o demasiado "bursty" en su conjunto).
-
-3. NGramTransitionExtractor -> COLECTIVA / DE SECUENCIA (pattern-based)
-   Cadena de Markov de primer orden sobre la secuencia de sensores disparados. No
-   analiza el timestamp ni la magnitud de nada individual, solo el ORDEN de los
-   eventos. Por diseño solo puede detectar anomalías COLECTIVAS de tipo secuencia:
-   un día donde el orden de activaciones rompe el patrón habitual (p.ej.
-   "Cocina -> Baño -> Cocina -> Cocina" repetido, en vez de la rutina esperada),
-   aunque cada sensor individual y cada intervalo sean perfectamente normales.
-   NO sirve para anomalías puntuales ni contextuales puras (ignora tiempo y hora).
-
-Recomendación práctica: para cubrir los tres tipos de anomalía en un mismo pipeline,
-combina los tres extractores (o aplica el de intervalos también a nivel crudo, sin
-agregar) en vez de usar solo uno.
-
-Las tres clases comparten la misma interfaz: extract(df) -> (X, dates) y
-diagnostics(group) -> dict con los valores intermedios necesarios para graficar
-cómo se calculó el vector de features de una ventana concreta.
+All share the same interface: extract(df) -> (X, dates) and
+diagnostics(group) -> dict with the intermediate values needed to plot how the
+feature vector of a specific window was computed. See each class docstring for
+the anomaly-type rationale.
 """
 
 import itertools
@@ -61,11 +30,11 @@ from features.common import EPSILON, daily_aggregates, entropy, extract_by_date
 
 
 class WindowAggregationExtractor:
-    """Agregación estadística clásica por ventana (tumbling window).
+    """Classic statistical per-window aggregation (tumbling window).
 
-    Tipo de anomalía: CONTEXTUAL (el contexto hora/franja está codificado en las
-    features) + COLECTIVA a nivel de día (el vector resume el día completo).
-    No apta para anomalías puntuales (evento individual raro dentro de un día normal).
+    Anomaly type: CONTEXTUAL (the hour/time-band context is encoded in the
+    features) + COLLECTIVE at day level (the vector summarizes the whole day).
+    Not suited for point anomalies (a single rare event inside a normal day).
     """
 
     FEATURE_NAMES: ClassVar[list[str]] = [
@@ -93,8 +62,8 @@ class WindowAggregationExtractor:
         return extract_by_date(df, self._features_for_window)
 
     def _features_for_window(self, group: pd.DataFrame) -> list[float]:
-        agg = daily_aggregates(group, base=2)
-        return [agg[key] for key in self._ORDER]
+        aggregates = daily_aggregates(group, base=2)
+        return [aggregates[key] for key in self._ORDER]
 
     def diagnostics(self, group: pd.DataFrame) -> dict:
         group = group.copy()
@@ -109,11 +78,11 @@ class WindowAggregationExtractor:
 
 
 class IntervalStatisticsExtractor:
-    """Estadística de intervalos entre eventos consecutivos (point-process / renewal process).
+    """Interval statistics between consecutive events (point-process / renewal process).
 
-    Tipo de anomalía: PUNTUAL si se usan los intervalos crudos (`diagnostics()`),
-    COLECTIVA si se usa el vector agregado por ventana que produce `extract()`
-    (mean/CV/Fano factor describen el "ritmo" del día completo, no un instante).
+    Anomaly type: POINT if the raw intervals are used (``diagnostics()``),
+    COLLECTIVE if the per-window aggregate vector produced by ``extract()`` is used
+    (mean/CV/Fano factor describe the "rhythm" of the whole day, not an instant).
     """
 
     FEATURE_NAMES: ClassVar[list[str]] = [
@@ -135,7 +104,7 @@ class IntervalStatisticsExtractor:
         return ts_sorted.diff().dropna().dt.total_seconds().values
 
     def _fano_factor(self, group: pd.DataFrame) -> float:
-        """Varianza / media del conteo de eventos en bins de tamaño fijo: mide 'burstiness'."""
+        """Variance / mean of the event count in fixed-size bins: measures 'burstiness'."""
         ts = pd.to_datetime(group["timestamp"]).sort_values()
         if len(ts) < 2:
             return 0.0
@@ -147,10 +116,10 @@ class IntervalStatisticsExtractor:
         if len(bin_edges) < 2:
             return 0.0
         counts, _ = np.histogram(ts.astype("int64"), bins=bin_edges.astype("int64"))
-        mean_c = counts.mean()
-        if mean_c == 0:
+        mean_count = counts.mean()
+        if mean_count == 0:
             return 0.0
-        return float(counts.var() / mean_c)
+        return float(counts.var() / mean_count)
 
     def _features_for_window(self, group: pd.DataFrame) -> list[float]:
         n_events = len(group)
@@ -173,11 +142,11 @@ class IntervalStatisticsExtractor:
 
 
 class NGramTransitionExtractor:
-    """Cadena de Markov de primer orden sobre la secuencia temporal de sensores disparados.
+    """First-order Markov chain over the temporal sequence of triggered sensors.
 
-    Tipo de anomalía: COLECTIVA de secuencia (pattern-based). Solo mira el orden de
-    los eventos, no su instante ni su magnitud, así que no sirve para detectar
-    anomalías puntuales ni contextuales puras.
+    Anomaly type: COLLECTIVE of the sequence kind (pattern-based). It only looks
+    at the order of events, not their instant or magnitude, so it cannot detect
+    point or pure contextual anomalies.
     """
 
     FEATURE_NAMES: ClassVar[list[str]] = [
@@ -206,32 +175,41 @@ class NGramTransitionExtractor:
         return extract_by_date(df, self._features_for_window)
 
     def _transition_matrix(self, group: pd.DataFrame) -> pd.DataFrame:
-        seq = self._sequence(group)
-        vocab = self.vocabulary_ or sorted(set(seq))
-        matrix = pd.DataFrame(0, index=vocab, columns=vocab, dtype=float)
-        for a, b in itertools.pairwise(seq):
-            if a in matrix.index and b in matrix.columns:
-                matrix.loc[a, b] += 1
+        sequence = self._sequence(group)
+        vocabulary = self.vocabulary_ or sorted(set(sequence))
+        matrix = pd.DataFrame(0, index=vocabulary, columns=vocabulary, dtype=float)
+        for source, target in itertools.pairwise(sequence):
+            if source in matrix.index and target in matrix.columns:
+                matrix.loc[source, target] += 1
         return matrix
 
     def _features_for_window(self, group: pd.DataFrame) -> list[float]:
-        seq = self._sequence(group)
-        n_transitions = max(len(seq) - 1, 0)
+        sequence = self._sequence(group)
+        n_transitions = max(len(sequence) - 1, 0)
         if n_transitions == 0:
             return [0.0, 0.0, 0.0, 0.0]
 
         matrix = self._transition_matrix(group)
-        counts = matrix.values.flatten()
-        transition_entropy = entropy(counts, base=2)
+        transition_counts = matrix.values.flatten()
+        transition_entropy = entropy(transition_counts, base=2)
 
-        total = counts.sum()
-        top_prob = float(counts.max() / total) if total > 0 else 0.0
+        total_transitions = transition_counts.sum()
+        top_transition_prob = (
+            float(transition_counts.max() / total_transitions)
+            if total_transitions > 0
+            else 0.0
+        )
 
         possible_bigrams = len(self.vocabulary_) ** 2 if self.vocabulary_ else 1
-        unique_bigrams = int((counts > 0).sum())
-        unique_ratio = float(unique_bigrams / possible_bigrams)
+        unique_bigrams = int((transition_counts > 0).sum())
+        unique_bigrams_ratio = float(unique_bigrams / possible_bigrams)
 
-        return [float(n_transitions), transition_entropy, top_prob, unique_ratio]
+        return [
+            float(n_transitions),
+            transition_entropy,
+            top_transition_prob,
+            unique_bigrams_ratio,
+        ]
 
     def diagnostics(self, group: pd.DataFrame) -> dict:
         return {
@@ -281,17 +259,19 @@ class NextEventTransitionExtractor:
 
     def fit(self, df: pd.DataFrame) -> "NextEventTransitionExtractor":
         """Learn the normal-transition probability matrix from ``df``."""
-        seq = self._sequence(df)
-        vocab = sorted(set(seq))
-        counts = pd.DataFrame(
-            self.LAPLACE_ALPHA, index=vocab, columns=vocab, dtype=float
+        sequence = self._sequence(df)
+        vocabulary = sorted(set(sequence))
+        transition_counts = pd.DataFrame(
+            self.LAPLACE_ALPHA, index=vocabulary, columns=vocabulary, dtype=float
         )
-        for a, b in itertools.pairwise(seq):
-            if a in counts.index and b in counts.columns:
-                counts.loc[a, b] += 1.0
-        self.prob_matrix_ = counts.div(counts.sum(axis=1), axis=0)
+        for source, target in itertools.pairwise(sequence):
+            if source in transition_counts.index and target in transition_counts.columns:
+                transition_counts.loc[source, target] += 1.0
+        self.prob_matrix_ = transition_counts.div(
+            transition_counts.sum(axis=1), axis=0
+        )
 
-        train_logprobs = self._logprobs_of(seq)
+        train_logprobs = self._logprobs_of(sequence)
         self.rare_threshold_ = (
             float(np.mean(train_logprobs))
             - self.RARE_Z * float(np.std(train_logprobs))
@@ -311,12 +291,12 @@ class NextEventTransitionExtractor:
         return extract_by_date(df, self._features_for_window)
 
     def _logprobs_of(self, seq: list[str]) -> list[float]:
-        matrix = self.prob_matrix_
+        prob_matrix = self.prob_matrix_
         logprobs = []
-        for a, b in itertools.pairwise(seq):
-            if a in matrix.index and b in matrix.columns:
-                p = float(matrix.loc[a, b])
-                logprobs.append(float(np.log(max(p, EPSILON))))
+        for source, target in itertools.pairwise(seq):
+            if source in prob_matrix.index and target in prob_matrix.columns:
+                probability = float(prob_matrix.loc[source, target])
+                logprobs.append(float(np.log(max(probability, EPSILON))))
             else:
                 # Source or target sensor never seen in training: maximally rare.
                 logprobs.append(float(np.log(EPSILON)))
@@ -327,32 +307,34 @@ class NextEventTransitionExtractor:
 
     def _features_for_window(self, group: pd.DataFrame) -> list[float]:
         logprobs = self._transition_logprobs(group)
-        n = len(logprobs)
-        if n == 0:
+        n_transitions = len(logprobs)
+        if n_transitions == 0:
             return [0.0, 0.0, 0.0]
-        rare = sum(1.0 for lp in logprobs if lp < self.rare_threshold_) / n
-        return [float(np.mean(logprobs)), float(np.min(logprobs)), rare]
+        rare_transition_rate = (
+            sum(1.0 for lp in logprobs if lp < self.rare_threshold_) / n_transitions
+        )
+        return [float(np.mean(logprobs)), float(np.min(logprobs)), rare_transition_rate]
 
     def diagnostics(self, group: pd.DataFrame) -> dict:
         logprobs = self._transition_logprobs(group)
-        seq = self._sequence(group)
-        matrix = self.prob_matrix_
+        sequence = self._sequence(group)
+        prob_matrix = self.prob_matrix_
         transitions = []
-        for (a, b), lp in zip(
-            itertools.pairwise(seq), logprobs, strict=True
+        for (source, target), logprob in zip(
+            itertools.pairwise(sequence), logprobs, strict=True
         ):
             transitions.append(
                 {
-                    "from": a,
-                    "to": b,
-                    "prob": float(np.exp(lp)) if lp > np.log(EPSILON) else 0.0,
-                    "logprob": lp,
-                    "rare": lp < self.rare_threshold_,
+                    "from": source,
+                    "to": target,
+                    "prob": float(np.exp(logprob)) if logprob > np.log(EPSILON) else 0.0,
+                    "logprob": logprob,
+                    "rare": logprob < self.rare_threshold_,
                 }
             )
         return {
-            "sequence": seq,
-            "transition_matrix": matrix.copy(),
+            "sequence": sequence,
+            "transition_matrix": prob_matrix.copy(),
             "transitions": transitions,
             "features": self._features_for_window(group),
             "feature_names": self.FEATURE_NAMES,
@@ -368,14 +350,14 @@ def generate_synthetic_events(
     seed: int = 42,
 ) -> pd.DataFrame:
     """
-    Genera un stream de eventos sintético con el mismo esquema que CASAS Aruba
-    (timestamp, sensor_id, event_type, value), para ilustrar los extractores
-    sin depender de la base de datos real.
+    Generate a synthetic event stream with the same schema as CASAS Aruba
+    (timestamp, sensor_id, event_type, value), to illustrate the extractors
+    without depending on the real database.
 
     pattern:
-        "regular"   -> eventos casi equiespaciados (proceso periódico con jitter pequeño)
-        "bursty"    -> eventos concentrados en pocos clusters temporales (proceso "bursty")
-        "day_night" -> mayoría de eventos en horario diurno, pocos de noche
+        "regular"   -> nearly equally spaced events (periodic process with small jitter)
+        "bursty"    -> events concentrated in a few temporal clusters ("bursty" process)
+        "day_night" -> most events during daytime hours, few at night
     """
     rng = np.random.default_rng(seed)
     sensors = [f"Sensor_{i + 1}" for i in range(n_sensors)]
@@ -393,7 +375,7 @@ def generate_synthetic_events(
             centers = rng.uniform(0, 24 * 60, size=n_clusters)
             per_cluster = max(events_per_day // n_clusters, 1)
             offsets = np.concatenate(
-                [rng.normal(c, 5, size=per_cluster) for c in centers]
+                [rng.normal(center, 5, size=per_cluster) for center in centers]
             )
         elif pattern == "day_night":
             day_events = int(events_per_day * 0.85)
@@ -408,22 +390,22 @@ def generate_synthetic_events(
                 ]
             )
         else:
-            raise ValueError(f"Patrón desconocido: {pattern}")
+            raise ValueError(f"Unknown pattern: {pattern}")
 
         offsets = np.clip(offsets, 0, 24 * 60 - 0.01)
-        timestamps = [day_start + pd.Timedelta(minutes=float(m)) for m in offsets]
+        timestamps = [day_start + pd.Timedelta(minutes=float(minutes)) for minutes in offsets]
         chosen_sensors = rng.choice(sensors, size=len(timestamps))
         event_types = rng.choice(["ON", "OFF"], size=len(timestamps))
 
-        for ts, sensor, etype in zip(
+        for timestamp, sensor, event_type in zip(
             timestamps, chosen_sensors, event_types, strict=True
         ):
             records.append(
                 {
-                    "timestamp": ts,
+                    "timestamp": timestamp,
                     "sensor_id": sensor,
-                    "event_type": etype,
-                    "value": 1.0 if etype == "ON" else 0.0,
+                    "event_type": event_type,
+                    "value": 1.0 if event_type == "ON" else 0.0,
                 }
             )
 

@@ -169,7 +169,7 @@ def main():
     available = db.list_houses()
     if not available:
         print(
-            f"⚠️  La base de datos de la fuente '{args.source}' está vacía. Carga los datos primero con:\n"
+            f"La base de datos de la fuente '{args.source}' está vacía. Carga los datos primero con:\n"
             f"  python src/ingestion/casas_loader.py --source {args.source}"
         )
         db.close()
@@ -178,7 +178,7 @@ def main():
     houses = args.houses or available
     unknown = set(houses) - set(available)
     if unknown:
-        print(f"⚠️  Estas casas no están en la BD y se omiten: {sorted(unknown)}")
+        print(f"Estas casas no están en la BD y se omiten: {sorted(unknown)}")
         houses = [h for h in houses if h in available]
 
     print(f"Fuente de datos: {args.source} ({db_path(args.source)})")
@@ -198,20 +198,20 @@ def main():
         print(f"\nAUROC sintético promedio entre casas: {avg_auroc:.3f}")
         if avg_auroc < 0.7:
             print(
-                "⚠️  AUROC bajo: el ensemble apenas distingue las anomalías sintéticas inyectadas "
+                "AUROC bajo: el ensemble apenas distingue las anomalías sintéticas inyectadas "
                 "del comportamiento normal. Prueba bajar --iforest-contamination, subir "
                 "--pca-components, o revisar si hay suficientes días de holdout."
             )
         else:
             print(
-                "✓ El ensemble detecta de forma consistente las anomalías sintéticas inyectadas."
+                "El ensemble detecta de forma consistente las anomalías sintéticas inyectadas."
             )
 
     if args.output:
         out_path = Path(args.output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         report.to_csv(out_path, index=False)
-        print(f"\n✓ Reporte guardado en {out_path}")
+        print(f"\nReporte guardado en {out_path}")
 
 
 if __name__ == "__main__":

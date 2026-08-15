@@ -2,7 +2,7 @@
 
 Single source for the "Learn more" links shown on the detector cards (2D Playground)
 and the feature-extraction methods (Features step). Every resource is a primary
-paper, a peer-reviewed survey, an official library manual or a monograph — no blog
+paper, a peer-reviewed survey, an official library manual or a monograph - no blog
 posts or wiki pages. Every URL was checked before being added.
 """
 

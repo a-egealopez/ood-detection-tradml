@@ -76,9 +76,9 @@ if __name__ == "__main__":
     det.fit(X_normal)
     anomalies, scores = det.predict(X_test)
 
-    print(f" Anomalías detectadas: {anomalies.sum()} / {len(anomalies)}")
+    print(f" Anomalies detected: {anomalies.sum()} / {len(anomalies)}")
     print(f" Score range: [{scores.min():.3f}, {scores.max():.3f}]")
 
     _, single_score = det.predict(X_test[:1])
     det._assert_unit_range(single_score)
-    print(" Validación OK")
+    print(" Validation OK")

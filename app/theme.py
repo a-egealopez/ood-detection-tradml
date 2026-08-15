@@ -18,11 +18,25 @@ BORDER = "#374151"  # subtle borders and gridlines
 
 PRIMARY = "#3b82f6"  # warm indigo (action / focus)
 PRIMARY_SOFT = "rgba(59, 130, 246, 0.45)"  # translucent indigo for markers/areas
+PRIMARY_MID = "rgba(109, 151, 250, 0.85)"  # brighter indigo for normal points on dark canvas
 SUCCESS = "#10b981"  # digital green (AUROC >= 0.8)
 WARNING = "#f59e0b"  # sensor orange (0.7-0.8)
 ERROR = "#ef4444"  # light red (< 0.7)
 ANOMALY = "#ec4899"  # magnetic pink (anomalous points / alerts)
 ANOMALY_SOFT = "rgba(236, 72, 153, 0.55)"
+
+# Anomaly-score field colorscale for teaching charts: dark "quiet" normal zones
+# rising through deep violet/magenta into warm amber. Tuned to read on the dark
+# canvas and mirrored by the CSS legend bar in the UI (see score_scale_css).
+ANOMALY_SCALE = [
+    [0.0, "#0c0f14"],
+    [0.2, "#1f1040"],
+    [0.4, "#531a63"],
+    [0.6, "#a1274e"],
+    [0.8, "#e05c12"],
+    [0.9, "#f5a623"],
+    [1.0, "#fdeeb3"],
+]
 
 # ----------------------------------------------------------------------------
 # Family colors: one accent per detector category (badges + section headers)
@@ -62,6 +76,12 @@ HEIGHT_MEDIUM = 380
 def family_color(category: str) -> str:
     """Accent color for a detector category (falls back to PRIMARY)."""
     return FAMILY_COLORS.get(category, PRIMARY)
+
+
+def score_scale_css() -> str:
+    """CSS linear-gradient that mirrors ANOMALY_SCALE (shared score-field legend)."""
+    stops = ", ".join(f"{color} {p * 100:.0f}%" for p, color in ANOMALY_SCALE)
+    return f"linear-gradient(90deg, {stops})"
 
 
 def badge(text: str, color: str, size: str = "0.72em") -> None:
@@ -173,6 +193,18 @@ h1, h2, h3, h4 { color: var(--text-primary); letter-spacing: -0.01em; }
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* Playground: shared anomaly-score legend bar above the detector grid */
+.score-legend {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 12px; color: var(--text-muted);
+  margin: -4px 0 14px 0; flex-wrap: wrap;
+}
+.score-bar {
+  width: 190px; height: 9px; border-radius: 999px;
+  border: 1px solid var(--border);
+}
+.score-legend .low-high { display: flex; align-items: center; gap: 6px; }
+
 /* Sidebar: sections as numbered cards */
 [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2 { margin-top: 0; }
 .sb-title {
@@ -268,7 +300,7 @@ def _root_vars() -> str:
 
     ``BASE_CSS`` references ``var(--bg-canvas)``, ``var(--action-primary)``, etc.;
     Streamlit only defines its own ``--primary-color`` family, so these must be
-    declared here — keeping ``theme.py`` the single source for both Python and CSS.
+    declared here - keeping ``theme.py`` the single source for both Python and CSS.
     """
     return (
         ":root {"
