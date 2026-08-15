@@ -11,7 +11,6 @@ from .sequential.hawkes_detector import HawkesDetector
 from .sequential.hmm_detector import HMMDetector
 from .vectorial import (
     EllipticEnvelopeDetector,
-    ExtendedIForestDetector,
     IsolationForestDetector,
     KNNDetector,
     LOFDetector,
@@ -24,7 +23,7 @@ from .vectorial import (
 
 DETECTOR_FACTORY: dict[str, type] = {
     "Isolation Forest": IsolationForestDetector,
-    "Extended IForest": ExtendedIForestDetector,
+    "Extended IForest": IsolationForestDetector,
     "Mahalanobis": MahalanobisDetector,
     "Elliptic Envelope": EllipticEnvelopeDetector,
     "Robust Covariance": RobustCovarianceDetector,
@@ -45,6 +44,7 @@ FIXED_PARAMS: dict[str, dict] = {
     "OC-SVM (RBF)": {"kernel": "rbf"},
     "OC-SVM (Linear)": {"kernel": "linear"},
     "OC-SVM (Poly)": {"kernel": "poly"},
+    "Extended IForest": {"sliced_path": True},
 }
 
 

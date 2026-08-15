@@ -1,13 +1,19 @@
 import numpy as np
 from sklearn.covariance import EllipticEnvelope
 
+from detectors.base import BaseDetector
+from detectors.constants import (
+    ANOMALY_LABEL,
+    DEFAULT_RANDOM_STATE,
+    DEFAULT_SUPPORT_FRACTION,
+)
+from detectors.vectorial.classical_gaussian import ClassicalGaussian, is_mcd_safe
 
-class EllipticEnvelopeDetector:
+
+class EllipticEnvelopeDetector(BaseDetector):
     def __init__(self, contamination: float = 0.1, robust: bool = True):
-        """
-        Detecta outliers asumiendo distribución gaussiana.
-        robust: usa Minimum Covariance Determinant (MCD) para resistir outliers en fit
-        """
+        """Gaussian-ellipsoid boundary; ``robust`` uses the Minimum Covariance
+        Determinant (MCD) so outliers present during training do not skew the fit."""
         self.contamination = contamination
         self.robust = robust
         self.model = None
@@ -15,13 +21,20 @@ class EllipticEnvelopeDetector:
         self.score_max = None
 
     def fit(self, X: np.ndarray) -> "EllipticEnvelopeDetector":
-        X = np.asarray(X, dtype=float)
-        self.model = EllipticEnvelope(
-            contamination=self.contamination,
-            random_state=42,
-            support_fraction=None if not self.robust else 0.7,
-        )
-        self.model.fit(X)
+        X = self._to_float(X)
+
+        if self.robust and is_mcd_safe(X):
+            self.model = EllipticEnvelope(
+                contamination=self.contamination,
+                random_state=DEFAULT_RANDOM_STATE,
+                support_fraction=DEFAULT_SUPPORT_FRACTION,
+            )
+            self.model.fit(X)
+        else:
+            # Non-robust mode, or degenerate input for MCD (too few samples /
+            # constant columns): fall back to a classical Gaussian fit.
+            self.model = ClassicalGaussian(contamination=self.contamination)
+            self.model.fit(X)
 
         # Mahalanobis distance grows with anomaly; normalized so higher = anomaly.
         scores_train = self.model.mahalanobis(X)
@@ -32,16 +45,13 @@ class EllipticEnvelopeDetector:
 
     def predict(self, X: np.ndarray):
         if self.model is None:
-            raise RuntimeError("Llama fit() antes de predict()")
+            self._check_fitted("model")
 
-        X = np.asarray(X, dtype=float)
+        X = self._to_float(X)
         predictions = self.model.predict(X)
-        anomalies = (predictions == -1).astype(int)
+        anomalies = self._to_binary_from_labels(predictions, ANOMALY_LABEL)
 
         scores_raw = self.model.mahalanobis(X)
-        scores = (scores_raw - self.score_min) / (
-            self.score_max - self.score_min + 1e-8
-        )
-        scores = np.clip(scores, 0.0, 1.0)
+        scores = self._scores_to_unit(scores_raw, self.score_min, self.score_max)
 
         return anomalies, scores

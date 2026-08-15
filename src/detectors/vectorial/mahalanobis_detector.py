@@ -1,9 +1,12 @@
 import numpy as np
 from scipy.spatial.distance import mahalanobis
 
+from detectors.base import BaseDetector
+from detectors.constants import DEFAULT_THRESHOLD_PERCENTILE, EPSILON
 
-class MahalanobisDetector:
-    def __init__(self, threshold_percentile: float = 95):
+
+class MahalanobisDetector(BaseDetector):
+    def __init__(self, threshold_percentile: float = DEFAULT_THRESHOLD_PERCENTILE):
         self.threshold_percentile = threshold_percentile
         self.mean = None
         self.cov = None
@@ -13,7 +16,7 @@ class MahalanobisDetector:
         self.score_max = None
 
     def fit(self, X: np.ndarray) -> "MahalanobisDetector":
-        X = np.asarray(X, dtype=float)
+        X = self._to_float(X)
         self.mean = X.mean(axis=0)
         self.cov = np.cov(X.T)
 
@@ -21,7 +24,7 @@ class MahalanobisDetector:
             self.cov_inv = np.linalg.inv(self.cov)
         except np.linalg.LinAlgError:
             # Singular: regularizar
-            self.cov += np.eye(self.cov.shape[0]) * 1e-6
+            self.cov += np.eye(self.cov.shape[0]) * EPSILON
             self.cov_inv = np.linalg.inv(self.cov)
 
         scores_train = np.array(
@@ -36,17 +39,14 @@ class MahalanobisDetector:
 
     def predict(self, X: np.ndarray):
         if self.mean is None or self.cov_inv is None:
-            raise RuntimeError("Llama fit() antes de predict()")
+            self._check_fitted("mean/cov_inv")
 
-        X = np.asarray(X, dtype=float)
+        X = self._to_float(X)
         scores_raw = np.array(
             [mahalanobis(X[i], self.mean, self.cov_inv) for i in range(len(X))]
         )
 
-        anomalies = (scores_raw > self.threshold).astype(int)
-        scores = (scores_raw - self.score_min) / (
-            self.score_max - self.score_min + 1e-8
-        )
-        scores = np.clip(scores, 0.0, 1.0)
+        anomalies = self._above_threshold(scores_raw, self.threshold)
+        scores = self._scores_to_unit(scores_raw, self.score_min, self.score_max)
 
         return anomalies, scores

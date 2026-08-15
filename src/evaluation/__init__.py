@@ -3,7 +3,6 @@ from .metrics import (
     compute_metrics,
     confusion_matrix,
     f1,
-    metrics_to_dataframe,
     precision,
     recall,
 )
@@ -21,7 +20,6 @@ __all__ = [
     "evaluate_with_synthetic_anomalies",
     "f1",
     "inject_synthetic_anomalies",
-    "metrics_to_dataframe",
     "precision",
     "recall",
 ]

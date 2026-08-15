@@ -1,7 +1,10 @@
 import numpy as np
 
+from detectors.base import BaseDetector
+from detectors.constants import DEFAULT_THRESHOLD_PERCENTILE
 
-class PCAReconstructionDetector:
+
+class PCAReconstructionDetector(BaseDetector):
     """PCA reconstruction error detector.
 
     Fits PCA on the training set, keeps the top `n_components` principal directions,
@@ -14,7 +17,11 @@ class PCAReconstructionDetector:
         error would be zero for every point and the detector would be degenerate.
     """
 
-    def __init__(self, n_components: int = 5, threshold_percentile: float = 95):
+    def __init__(
+        self,
+        n_components: int = 5,
+        threshold_percentile: float = DEFAULT_THRESHOLD_PERCENTILE,
+    ):
         self.n_components = n_components
         self.threshold_percentile = threshold_percentile
         self.W = None
@@ -24,7 +31,7 @@ class PCAReconstructionDetector:
         self.score_max = None
 
     def fit(self, X: np.ndarray) -> "PCAReconstructionDetector":
-        X = np.asarray(X, dtype=float)
+        X = self._to_float(X)
         n_features, n_samples = X.shape[1], X.shape[0]
 
         effective = min(self.n_components, n_features - 1, n_samples - 1)
@@ -51,14 +58,13 @@ class PCAReconstructionDetector:
 
     def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         if self.W is None or self.mean is None:
-            raise RuntimeError("You must call fit() before predict()")
+            self._check_fitted("W/mean")
 
-        X = np.asarray(X, dtype=float)
+        X = self._to_float(X)
         errors = self._reconstruction_errors(X)
 
-        anomalies = (errors > self.threshold).astype(int)
-        scores = (errors - self.score_min) / (self.score_max - self.score_min + 1e-8)
-        scores = np.clip(scores, 0.0, 1.0)
+        anomalies = self._above_threshold(errors, self.threshold)
+        scores = self._scores_to_unit(errors, self.score_min, self.score_max)
 
         return anomalies, scores
 
@@ -79,5 +85,5 @@ if __name__ == "__main__":
 
     print(f" Anomalies detected: {anomalies.sum()} / {len(anomalies)}")
     print(f" Score range: [{scores.min():.3f}, {scores.max():.3f}]")
-    assert np.isfinite(scores).all()
+    det._assert_unit_range(scores)
     print(" Validation OK")

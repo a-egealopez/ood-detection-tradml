@@ -57,17 +57,7 @@ from typing import ClassVar
 import numpy as np
 import pandas as pd
 
-EPSILON = 1e-10
-
-
-def _entropy(counts: np.ndarray) -> float:
-    counts = np.asarray(counts, dtype=float)
-    total = counts.sum()
-    if total == 0:
-        return 0.0
-    probs = counts / total
-    probs = probs[probs > 0]
-    return float(-np.sum(probs * np.log2(probs + EPSILON)))
+from features.common import EPSILON, daily_aggregates, entropy, extract_by_date
 
 
 class WindowAggregationExtractor:
@@ -77,8 +67,6 @@ class WindowAggregationExtractor:
     features) + COLECTIVA a nivel de día (el vector resume el día completo).
     No apta para anomalías puntuales (evento individual raro dentro de un día normal).
     """
-
-    ANOMALY_TYPES: ClassVar[list[str]] = ["contextual", "colectiva"]
 
     FEATURE_NAMES: ClassVar[list[str]] = [
         "n_events",
@@ -90,51 +78,23 @@ class WindowAggregationExtractor:
         "entropy_sensor",
     ]
 
-    def extract(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-        df = df.copy()
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-        df["date"] = df["timestamp"].dt.date
+    # Maps this extractor's feature names to the keys of the shared helper.
+    _ORDER: ClassVar[list[str]] = [
+        "n_events",
+        "n_sensors",
+        "activity_hours",
+        "avg_gap_minutes",
+        "night_activity",
+        "entropy_hourly",
+        "entropy_sensor",
+    ]
 
-        rows, dates = [], []
-        for date, group in df.groupby("date"):
-            rows.append(self._features_for_window(group))
-            dates.append(date)
-        return np.array(rows), np.array(dates)
+    def extract(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+        return extract_by_date(df, self._features_for_window)
 
     def _features_for_window(self, group: pd.DataFrame) -> list[float]:
-        group = group.copy()
-        group["timestamp"] = pd.to_datetime(group["timestamp"])
-        group["hour"] = group["timestamp"].dt.hour
-
-        n_events = len(group)
-        if n_events == 0:
-            return [0.0] * len(self.FEATURE_NAMES)
-
-        n_sensors = group["sensor_id"].nunique()
-        activity_hours = group["hour"].nunique()
-
-        ts_sorted = group["timestamp"].sort_values()
-        gaps = ts_sorted.diff().dropna().dt.total_seconds() / 60.0
-        avg_gap = float(gaps.mean()) if len(gaps) > 0 else 0.0
-
-        night_mask = (group["hour"] < 8) | (group["hour"] >= 22)
-        night_ratio = float(night_mask.sum()) / n_events
-
-        hourly_counts = (
-            group.groupby("hour").size().reindex(range(24), fill_value=0).values
-        )
-        entropy_hourly = _entropy(hourly_counts)
-        entropy_sensor = _entropy(group.groupby("sensor_id").size().values)
-
-        return [
-            n_events,
-            n_sensors,
-            activity_hours,
-            avg_gap,
-            night_ratio,
-            entropy_hourly,
-            entropy_sensor,
-        ]
+        agg = daily_aggregates(group, base=2)
+        return [agg[key] for key in self._ORDER]
 
     def diagnostics(self, group: pd.DataFrame) -> dict:
         group = group.copy()
@@ -156,8 +116,6 @@ class IntervalStatisticsExtractor:
     (mean/CV/Fano factor describen el "ritmo" del día completo, no un instante).
     """
 
-    ANOMALY_TYPES: ClassVar[list[str]] = ["puntual (crudo)", "colectiva (agregado por ventana)"]
-
     FEATURE_NAMES: ClassVar[list[str]] = [
         "n_events",
         "mean_iei_sec",
@@ -170,15 +128,7 @@ class IntervalStatisticsExtractor:
         self.fano_bin_minutes = fano_bin_minutes
 
     def extract(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-        df = df.copy()
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-        df["date"] = df["timestamp"].dt.date
-
-        rows, dates = [], []
-        for date, group in df.groupby("date"):
-            rows.append(self._features_for_window(group))
-            dates.append(date)
-        return np.array(rows), np.array(dates)
+        return extract_by_date(df, self._features_for_window)
 
     def _intervals_seconds(self, group: pd.DataFrame) -> np.ndarray:
         ts_sorted = pd.to_datetime(group["timestamp"]).sort_values()
@@ -230,8 +180,6 @@ class NGramTransitionExtractor:
     anomalías puntuales ni contextuales puras.
     """
 
-    ANOMALY_TYPES: ClassVar[list[str]] = ["colectiva (secuencia)"]
-
     FEATURE_NAMES: ClassVar[list[str]] = [
         "n_transitions",
         "transition_entropy",
@@ -255,16 +203,7 @@ class NGramTransitionExtractor:
     def extract(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
         if not self.vocabulary_:
             self.fit_vocabulary(df)
-
-        df = df.copy()
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-        df["date"] = df["timestamp"].dt.date
-
-        rows, dates = [], []
-        for date, group in df.groupby("date"):
-            rows.append(self._features_for_window(group))
-            dates.append(date)
-        return np.array(rows), np.array(dates)
+        return extract_by_date(df, self._features_for_window)
 
     def _transition_matrix(self, group: pd.DataFrame) -> pd.DataFrame:
         seq = self._sequence(group)
@@ -283,7 +222,7 @@ class NGramTransitionExtractor:
 
         matrix = self._transition_matrix(group)
         counts = matrix.values.flatten()
-        entropy = _entropy(counts)
+        transition_entropy = entropy(counts, base=2)
 
         total = counts.sum()
         top_prob = float(counts.max() / total) if total > 0 else 0.0
@@ -292,7 +231,7 @@ class NGramTransitionExtractor:
         unique_bigrams = int((counts > 0).sum())
         unique_ratio = float(unique_bigrams / possible_bigrams)
 
-        return [float(n_transitions), entropy, top_prob, unique_ratio]
+        return [float(n_transitions), transition_entropy, top_prob, unique_ratio]
 
     def diagnostics(self, group: pd.DataFrame) -> dict:
         return {
@@ -300,6 +239,124 @@ class NGramTransitionExtractor:
             "sequence": self._sequence(group),
             "features": self._features_for_window(group),
             "feature_names": self.FEATURE_NAMES,
+        }
+
+
+class NextEventTransitionExtractor:
+    """First-order Markov *prediction* of the next triggered sensor.
+
+    Type of anomaly: POINT (single-event) + COLLECTIVE at day level.
+
+    Where ``NGramTransitionExtractor`` summarizes a whole day into an entropy, this
+    extractor learns a transition *probability* matrix from the normal behavior and
+    scores each actual transition against it, the way the anomaly-detection
+    literature does for log/event sequences (DeepLog and the classic n-gram /
+    language-model baseline it builds on). A transition that the model considers
+    very unlikely flags the event, so a single rare step inside an otherwise normal
+    day is not diluted away by aggregation.
+
+    Method: fit the maximum-likelihood transition matrix ``P(b|a)`` with additive
+    (Laplace) smoothing so unseen transitions never get probability exactly 0, then
+    for each day take the negative log-likelihood of its real transitions as the
+    anomaly signal.
+    """
+
+    FEATURE_NAMES: ClassVar[list[str]] = [
+        "mean_logprob",
+        "min_logprob",
+        "rare_transition_rate",
+    ]
+
+    # A transition is "rare" when its log-likelihood falls more than this many
+    # standard deviations below the mean log-likelihood of the training
+    # transitions. Relative (not absolute) so it works for any vocabulary size.
+    RARE_Z: ClassVar[float] = 2.0
+    # Laplace smoothing constant: one pseudo-count per (source, target) pair.
+    LAPLACE_ALPHA: ClassVar[float] = 1.0
+
+    def __init__(self, token_col: str = "sensor_id"):
+        self.token_col = token_col
+        self.prob_matrix_: pd.DataFrame | None = None
+        self.rare_threshold_: float | None = None
+
+    def fit(self, df: pd.DataFrame) -> "NextEventTransitionExtractor":
+        """Learn the normal-transition probability matrix from ``df``."""
+        seq = self._sequence(df)
+        vocab = sorted(set(seq))
+        counts = pd.DataFrame(
+            self.LAPLACE_ALPHA, index=vocab, columns=vocab, dtype=float
+        )
+        for a, b in itertools.pairwise(seq):
+            if a in counts.index and b in counts.columns:
+                counts.loc[a, b] += 1.0
+        self.prob_matrix_ = counts.div(counts.sum(axis=1), axis=0)
+
+        train_logprobs = self._logprobs_of(seq)
+        self.rare_threshold_ = (
+            float(np.mean(train_logprobs))
+            - self.RARE_Z * float(np.std(train_logprobs))
+            if len(train_logprobs) > 1
+            else -float("inf")
+        )
+        return self
+
+    def _sequence(self, df: pd.DataFrame) -> list[str]:
+        df = df.copy()
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        return df.sort_values("timestamp")[self.token_col].astype(str).tolist()
+
+    def extract(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+        if self.prob_matrix_ is None:
+            self.fit(df)
+        return extract_by_date(df, self._features_for_window)
+
+    def _logprobs_of(self, seq: list[str]) -> list[float]:
+        matrix = self.prob_matrix_
+        logprobs = []
+        for a, b in itertools.pairwise(seq):
+            if a in matrix.index and b in matrix.columns:
+                p = float(matrix.loc[a, b])
+                logprobs.append(float(np.log(max(p, EPSILON))))
+            else:
+                # Source or target sensor never seen in training: maximally rare.
+                logprobs.append(float(np.log(EPSILON)))
+        return logprobs
+
+    def _transition_logprobs(self, group: pd.DataFrame) -> list[float]:
+        return self._logprobs_of(self._sequence(group))
+
+    def _features_for_window(self, group: pd.DataFrame) -> list[float]:
+        logprobs = self._transition_logprobs(group)
+        n = len(logprobs)
+        if n == 0:
+            return [0.0, 0.0, 0.0]
+        rare = sum(1.0 for lp in logprobs if lp < self.rare_threshold_) / n
+        return [float(np.mean(logprobs)), float(np.min(logprobs)), rare]
+
+    def diagnostics(self, group: pd.DataFrame) -> dict:
+        logprobs = self._transition_logprobs(group)
+        seq = self._sequence(group)
+        matrix = self.prob_matrix_
+        transitions = []
+        for (a, b), lp in zip(
+            itertools.pairwise(seq), logprobs, strict=True
+        ):
+            transitions.append(
+                {
+                    "from": a,
+                    "to": b,
+                    "prob": float(np.exp(lp)) if lp > np.log(EPSILON) else 0.0,
+                    "logprob": lp,
+                    "rare": lp < self.rare_threshold_,
+                }
+            )
+        return {
+            "sequence": seq,
+            "transition_matrix": matrix.copy(),
+            "transitions": transitions,
+            "features": self._features_for_window(group),
+            "feature_names": self.FEATURE_NAMES,
+            "rare_threshold": self.rare_threshold_,
         }
 
 

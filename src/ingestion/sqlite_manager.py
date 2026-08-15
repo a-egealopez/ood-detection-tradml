@@ -25,7 +25,7 @@ class SQLiteDataManager:
 
     def create_tables(self) -> None:
         if self.conn is None:
-            raise RuntimeError("Debes llamar a connect() antes de create_tables()")
+            raise RuntimeError("You must call connect() before create_tables()")
 
         try:
             cursor = self.conn.cursor()
@@ -58,7 +58,7 @@ class SQLiteDataManager:
 
     def insert_events(self, df: pd.DataFrame, house_id: str = "aruba") -> int:
         if self.conn is None:
-            raise RuntimeError("Debes llamar a connect() antes de insert_events()")
+            raise RuntimeError("You must call connect() before insert_events()")
 
         if "house_id" not in df.columns:
             df = df.copy()
@@ -69,7 +69,7 @@ class SQLiteDataManager:
 
     def insert_batch(self, list_of_dicts: list[dict]) -> int:
         if self.conn is None:
-            raise RuntimeError("Debes llamar a connect() antes de insert_batch()")
+            raise RuntimeError("You must call connect() before insert_batch()")
 
         if not list_of_dicts:
             logger.warning("insert_batch llamado con lista vacía, nada que insertar")
@@ -120,7 +120,7 @@ class SQLiteDataManager:
 
     def query_to_dataframe(self, sql: str, params: tuple = ()) -> pd.DataFrame:
         if self.conn is None:
-            raise RuntimeError("Debes llamar a connect() antes de query_to_dataframe()")
+            raise RuntimeError("You must call connect() before query_to_dataframe()")
 
         try:
             df = pd.read_sql_query(sql, self.conn, params=params)
@@ -137,34 +137,16 @@ class SQLiteDataManager:
             params=(house_id,),
         )
 
-    def query_date_range(
-        self, start_date: str, end_date: str, house_id: str | None = None
-    ) -> pd.DataFrame:
-        if house_id is None:
-            sql = """
-                SELECT * FROM sensor_events
-                WHERE timestamp >= ? AND timestamp <= ?
-                ORDER BY timestamp
-            """
-            return self.query_to_dataframe(sql, params=(start_date, end_date))
-
-        sql = """
-            SELECT * FROM sensor_events
-            WHERE house_id = ? AND timestamp >= ? AND timestamp <= ?
-            ORDER BY timestamp
-        """
-        return self.query_to_dataframe(sql, params=(house_id, start_date, end_date))
-
     def list_houses(self) -> list[str]:
         if self.conn is None:
-            raise RuntimeError("Debes llamar a connect() antes de list_houses()")
+            raise RuntimeError("You must call connect() before list_houses()")
         cursor = self.conn.cursor()
         cursor.execute("SELECT DISTINCT house_id FROM sensor_events ORDER BY house_id")
         return [row[0] for row in cursor.fetchall()]
 
     def get_stats(self, house_id: str | None = None) -> dict:
         if self.conn is None:
-            raise RuntimeError("Debes llamar a connect() antes de get_stats()")
+            raise RuntimeError("You must call connect() before get_stats()")
 
         try:
             cursor = self.conn.cursor()

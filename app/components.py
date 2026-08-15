@@ -4,17 +4,13 @@ import plotly.graph_objects as go
 import streamlit as st
 from references import KIND_LABELS, resources_for
 from theme import (
-    ANOMALY,
     ANOMALY_SOFT,
     AUROC_BAD,
     AUROC_GOOD,
     AUROC_MID,
-    ERROR,
     MUTED,
     PRIMARY,
-    SUCCESS,
     TEXT,
-    WARNING,
     apply_layout,
     badge,
     display_chart,
@@ -50,17 +46,6 @@ def chart_pair(
 # ============================================================================
 # Guided workflow
 # ============================================================================
-def page_header(
-    title: str, subtitle: str | None = None, breadcrumb: str | None = None
-) -> None:
-    """Consistent page header with an optional workflow breadcrumb."""
-    if breadcrumb:
-        st.caption(breadcrumb)
-    st.title(title)
-    if subtitle:
-        st.caption(subtitle)
-
-
 def guided_stepper(steps: list[str], current: int | str, key: str) -> int:
     """Guided workflow: clickable step tabs to move between the 3 stages.
 
@@ -131,17 +116,6 @@ def colored_section_header(number: str, title: str, color: str, hint: str = "") 
         st.caption(hint)
 
 
-def sb_section_header(number: str, title: str, color: str, expanded: bool = True):
-    """Sidebar numbered section header + expander body (returns the expander)."""
-    st.sidebar.markdown(
-        f"<div class='sb-title' style='margin-top:10px;'><span class='sb-num' "
-        f"style='color:{color};background:{color}22;border:1px solid {color}55;'>"
-        f"{number}</span><span>{title}</span></div>",
-        unsafe_allow_html=True,
-    )
-    return st.sidebar.expander("", expanded=expanded)
-
-
 def info_box(icon: str, title: str, body: str, color: str = TEXT) -> None:
     """Colored in-flow info box (guided explanation, tips, contextual help)."""
     st.markdown(
@@ -151,38 +125,6 @@ def info_box(icon: str, title: str, body: str, color: str = TEXT) -> None:
         f"<div><b>{title}</b><br>{body}</div></div>",
         unsafe_allow_html=True,
     )
-
-
-def metric_card(label: str, value: str, color: str = TEXT, sub: str = "") -> None:
-    """Single large stat card (KPI / house AUROC); accent color on the top rail."""
-    sub_html = f"<div class='stat-sub'>{sub}</div>" if sub else ""
-    st.markdown(
-        f"<div class='stat-card' style='--card-accent:{color};'>"
-        f"<div class='stat-label'>{label}</div>"
-        f"<div class='stat-value' style='color:{color};'>{value}</div>"
-        f"{sub_html}</div>",
-        unsafe_allow_html=True,
-    )
-
-
-def interpret_auroc(auroc: float | None) -> tuple[str, str]:
-    """Semantic verdict for an AUROC value: (color, human label)."""
-    if auroc is None:
-        return MUTED, "not measured"
-    if auroc > 0.75:
-        return SUCCESS, "✓ Good (>0.75)"
-    if auroc > 0.7:
-        return WARNING, "~ Fair (0.70–0.75)"
-    return ERROR, "✗ Poor (<0.70) — try tuning"
-
-
-def param_chips(params, values: dict) -> None:
-    """Read-only parameter chips: ``label: value`` (advanced cards summary)."""
-    chips = "".join(
-        f"<span class='param-chip'>{p.label}: <b>{values.get(p.kwarg, p.default)}</b></span>"
-        for p in params
-    )
-    st.markdown(f"<div>{chips}</div>", unsafe_allow_html=True)
 
 
 def _click_key(key: str) -> str:
@@ -309,85 +251,6 @@ def pattern_preview(pattern: str) -> go.Figure:
     return fig
 
 
-# ============================================================================
-# Detector strengths / weaknesses (shared by cards + Info tab)
-# ============================================================================
-DETECTOR_STRENGTHS: dict[str, tuple[str, str]] = {
-    "Isolation Forest": (
-        "Scalable, no distribution assumption, robust in higher dimensions",
-        "Struggles with strongly correlated features",
-    ),
-    "Extended IForest": (
-        "Oblique splits handle rotated / high-dimensional data",
-        "Less battle-tested than the classic isolation forest",
-    ),
-    "Mahalanobis": (
-        "Covariance-aware distance, single scalar threshold",
-        "Assumes Gaussian data; sensitive to outliers in the training set",
-    ),
-    "Elliptic Envelope": (
-        "Robust MCD fit resists outliers during training",
-        "Gaussian-ellipsoid assumption; heavy on large datasets",
-    ),
-    "Robust Covariance": (
-        "Very robust covariance estimate (MCD)",
-        "Elliptical-shape assumption; can be slow",
-    ),
-    "KNN": (
-        "Distribution-agnostic, no density or shape assumption",
-        "Slow on large data; K is a sensitive hyperparameter",
-    ),
-    "OC-SVM (RBF)": (
-        "Gaussian boundary; flexible non-convex decision surface",
-        "Gamma and nu are delicate to tune",
-    ),
-    "OC-SVM (Linear)": (
-        "Hyperplane boundary; fast and interpretable",
-        "Only separates linearly separable data",
-    ),
-    "OC-SVM (Poly)": (
-        "Polynomial boundary; non-linear with a controlled shape",
-        "Degree and coef0 add more hyperparameters",
-    ),
-    "LOF": (
-        "Catches local deviations even inside dense regions",
-        "O(n²) behaviour; neighbourhood size affects results strongly",
-    ),
-    "Z-Score": (
-        "Dead simple, interpretable per-feature distance",
-        "Assumes roughly Gaussian features; ignores correlations",
-    ),
-    "PCA Reconstruction": (
-        "Linear subspace structure; cheap prediction once fitted",
-        "Misses non-linear structure; component count to tune",
-    ),
-    "HMM": (
-        "Models temporal regimes and regime transitions",
-        "Gaussian-per-state assumption; slower training",
-    ),
-    "Hawkes": (
-        "Self-exciting point-process view of the event stream",
-        "Heavy native dependency; score is illustrative rather than exact",
-    ),
-}
-
-
-def strength_box(name: str) -> None:
-    """Small strengths / weaknesses box per detector card."""
-    text = DETECTOR_STRENGTHS.get(name)
-    if not text:
-        return
-    strengths, weaknesses = text
-    st.markdown(
-        f"<div class='info-card' style='color:{MUTED};border-color:{MUTED}44;"
-        f"background:rgba(255,255,255,0.02);'>"
-        f"<span class='ic-icon'>📌</span><div>"
-        f"<b>Strengths:</b> {strengths}<br>"
-        f"<b style='color:{ANOMALY};'>Weaknesses:</b> {weaknesses}</div></div>",
-        unsafe_allow_html=True,
-    )
-
-
 def auroc_pill(auroc: float | None, label: str = "AUROC") -> None:
     """Colored pill for an AUROC value with an interpretive verdict."""
     if auroc is None:
@@ -473,40 +336,24 @@ def detector_card(
     auroc: float | None,
     params=(),
     prefix: str = "",
-    show_params: bool = True,
     values: dict | None = None,
     chart_key: str | None = None,
-    params_readonly: bool = False,
-    show_strengths: bool = False,
 ) -> None:
-    """Detector card: header with family badge, chart, AUROC pill and params.
+    """Detector card: header with family badge, chart, AUROC pill and param widgets.
 
     Shared by the 2D Playground grid and the CASAS detector cards so both tracks
-    look and behave identically. ``params_readonly`` renders the params as chips
-    (values driven by the sidebar); otherwise the widgets themselves are drawn.
+    look and behave identically.
     """
     with st.container(border=True):
         head, badge_col = st.columns([3.2, 1])
         with head:
             st.markdown(f"**{name}**")
-            if show_strengths:
-                st.caption(description, unsafe_allow_html=False)
-            else:
-                st.caption(description)
+            st.caption(description)
         with badge_col:
             badge(category, family_color(category))
         display_chart(fig, key=chart_key)
         auroc_pill(auroc)
         render_resources(name)
-        if show_strengths:
-            strength_box(name)
-        if show_params and params:
-            if params_readonly:
-                with st.expander("Parameters"):
-                    values = values or read_param_values(params, prefix)
-                    param_chips(params, values)
-            else:
-                st.markdown("---")
-                render_param_widgets(
-                    params, prefix, values or read_param_values(params, prefix)
-                )
+        if params:
+            st.markdown("---")
+            render_param_widgets(params, prefix, values or read_param_values(params, prefix))

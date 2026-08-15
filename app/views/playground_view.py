@@ -169,6 +169,127 @@ def _add_lof_illustration(
         )
 
 
+def _add_ocsvm_boundary(
+    fig: go.Figure, detector: Any, x_range: tuple[float, float], y_range: tuple[float, float]
+) -> None:
+    """Draw the One-Class SVM decision boundary (decision_function = 0).
+
+    The colored mesh already shows the score field; this contour line makes the
+    exact frontier crisp, which is the thing an SVM boundary learner is about.
+    """
+    try:
+        grid = 60
+        xs = np.linspace(x_range[0], x_range[1], grid)
+        ys = np.linspace(y_range[0], y_range[1], grid)
+        xx, yy = np.meshgrid(xs, ys)
+        mesh = np.column_stack([xx.ravel(), yy.ravel()])
+        decision = detector.model.decision_function(mesh).reshape(xx.shape)
+        fig.add_trace(
+            go.Contour(
+                x=xs,
+                y=ys,
+                z=decision,
+                contours={"start": 0, "end": 0, "size": 1, "coloring": "lines"},
+                line={"color": "white", "width": 2.5},
+                showscale=False,
+                hoverinfo="skip",
+            )
+        )
+    except Exception:  # noqa: BLE001 - overlay is cosmetic; never break the chart
+        logger.warning("Could not draw OC-SVM boundary overlay")
+
+
+def _add_zscore_band(fig: go.Figure, detector: Any) -> None:
+    """Draw the axis-aligned threshold rectangle mu +/- threshold*sigma per feature.
+
+    Z-Score is univariate: each feature is judged independently, so its "normal"
+    region is an axis-parallel box, not a rotated ellipse. This rectangle makes
+    that explicit.
+    """
+    try:
+        mu, sigma, t = detector.mu, detector.sigma, detector.threshold
+        x0, x1 = mu[0] - t * sigma[0], mu[0] + t * sigma[0]
+        y0, y1 = mu[1] - t * sigma[1], mu[1] + t * sigma[1]
+        fig.add_trace(
+            go.Scatter(
+                x=[x0, x1, x1, x0, x0],
+                y=[y0, y0, y1, y1, y0],
+                mode="lines",
+                line={"color": "white", "width": 2.5, "dash": "dash"},
+                hoverinfo="skip",
+                showlegend=False,
+            )
+        )
+    except Exception:  # noqa: BLE001 - overlay is cosmetic; never break the chart
+        logger.warning("Could not draw Z-Score band overlay")
+
+
+def _add_pca_axes(fig: go.Figure, detector: Any, X: np.ndarray) -> None:
+    """Draw the principal-component directions from the mean.
+
+    PCA Reconstruction scores a point by distance to the subspace spanned by the
+    top components; showing those directions on the plane explains why points off
+    the main manifold get high anomaly scores.
+    """
+    try:
+        W = np.asarray(detector.W)
+        mean = np.asarray(detector.mean)
+        span = X.max(axis=0) - X.min(axis=0)
+        length = 0.8 * np.max(span)
+        for col in range(W.shape[1]):
+            direction = W[:, col]
+            direction = direction / (np.linalg.norm(direction) + 1e-12)
+            endpoint = mean + direction * length
+            fig.add_trace(
+                go.Scatter(
+                    x=[mean[0], endpoint[0]],
+                    y=[mean[1], endpoint[1]],
+                    mode="lines",
+                    line={"color": "white", "width": 2.5},
+                    hoverinfo="skip",
+                    showlegend=False,
+                )
+            )
+    except Exception:  # noqa: BLE001 - overlay is cosmetic; never break the chart
+        logger.warning("Could not draw PCA axes overlay")
+
+
+def _add_iforest_iso(
+    fig: go.Figure, detector: Any, x_range: tuple[float, float], y_range: tuple[float, float]
+) -> None:
+    """Overlay iso-lines of the isolation score to reveal the 'isolation valleys'.
+
+    The mesh is the score field; these contour lines at fixed levels show how the
+    forest carves the space — regions reached by short random paths are the peaks.
+    """
+    try:
+        grid = 60
+        xs = np.linspace(x_range[0], x_range[1], grid)
+        ys = np.linspace(y_range[0], y_range[1], grid)
+        xx, yy = np.meshgrid(xs, ys)
+        mesh = np.column_stack([xx.ravel(), yy.ravel()])
+        _, zz = detector.predict(mesh)
+        zz = zz.reshape(xx.shape)
+        fig.add_trace(
+            go.Contour(
+                x=xs,
+                y=ys,
+                z=zz,
+                contours={
+                    "start": 0.2,
+                    "end": 0.8,
+                    "size": 0.15,
+                    "coloring": "lines",
+                },
+                line={"color": "rgba(255,255,255,0.5)", "width": 1},
+                showscale=False,
+                hoverinfo="skip",
+            )
+        )
+    except Exception:  # noqa: BLE001 - overlay is cosmetic; never break the chart
+        logger.warning("Could not draw IForest iso overlay")
+
+
 def _build_figure(
     detector_name: str,
     detector: Any,
@@ -206,6 +327,14 @@ def _build_figure(
         _add_knn_illustration(fig, X, scores, k_for_illustration)
     elif family == "lof":
         _add_lof_illustration(fig, X, k_for_illustration)
+    elif family == "ocsvm":
+        _add_ocsvm_boundary(fig, detector, x_range, y_range)
+    elif family == "zscore":
+        _add_zscore_band(fig, detector)
+    elif family == "pca":
+        _add_pca_axes(fig, detector, X)
+    elif family == "iforest":
+        _add_iforest_iso(fig, detector, x_range, y_range)
 
     normal_mask = y_pred == 0
     fig.add_trace(
@@ -362,7 +491,6 @@ def _render_detector_card(
         auroc=result["auroc"],
         params=widget_params,
         prefix=prefix,
-        show_params=True,
         values=params,
         chart_key=f"chart_{prefix}",
     )
@@ -431,25 +559,6 @@ def render_playground_view() -> None:
     st.markdown(f"**{dataset_description}**")
 
     st.markdown("---")
-    with st.expander("How to read these charts", expanded=True):
-        st.markdown(
-            """
-            **Blue background** = the detector's real anomaly score, evaluated over the whole space.
-            **Blue points** = predicted normal - **Red points** = predicted anomaly, intensity = confidence.
-            **Dotted ellipses** (Mahalanobis / Elliptic Envelope / Robust Covariance) = 1σ, 2σ and 3σ
-            contours of the estimated covariance; points outside the outer ellipse are the most atypical.
-            **Gold star + red lines** (KNN) = the most anomalous point and the k neighbors used to score it.
-            **Blue circles** (LOF) = radius to the k-th neighbor for a sample of points, showing how the
-            local density varies across the dataset.
-
-            **AUROC** = Area Under the ROC Curve - 1.0 perfect separation - 0.5 random - above 0.7 is a
-            strong detector for this geometry.
-
-            Move the sliders under each chart: the detector is retrained instantly with the new parameter.
-            **Anomalies %** (top) is shared by all detectors — it sets both the anomalies injected into
-            the dataset and each detector's assumed contamination ratio.
-            """
-        )
 
     section_title("All Detectors at a Glance")
     categories: list[str] = []

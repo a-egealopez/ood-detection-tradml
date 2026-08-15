@@ -47,8 +47,7 @@ ood-detection-tradml/
 │   └── views/                  # One module per view
 │       ├── playground_view.py          # 2D Playground: decision-boundary visualizations
 │       ├── feature_extraction_view.py  # Didactic view of the 3 event-driven extractors
-│       ├── casas_view.py               # CASAS track: sidebar config + auto-run + result tabs
-│       └── documentation_view.py       # Documentation content
+│       └── casas_view.py               # CASAS track: sidebar config + auto-run + result tabs
 ├── src/                        # Library code (importable as top-level package via src/ on sys.path)
 │   ├── config.py               # Paths, house/source constants, logging setup
 │   ├── pipeline.py             # CASAS anomaly pipeline (extract, scale, ensemble, evaluate)
@@ -56,11 +55,13 @@ ood-detection-tradml/
 │   │   ├── __init__.py         # Public API: 12 detectors + EnsembleDetector
 │   │   ├── factory.py          # Detector factory: name -> class, build_detector(s)
 │   │   ├── ensemble.py         # EnsembleDetector (soft / hard voting)
+│   │   ├── base.py             # BaseDetector: shared fit/predict boilerplate
+│   │   ├── constants.py        # Shared constants (EPSILON, random_state, labels...)
 │   │   ├── vectorial/          # ZScore, IsolationForest, ExtendedIForest, Mahalanobis,
 │   │   │                       # EllipticEnvelope, RobustCovariance, KNN, OC-SVM, LOF,
-│   │   │                       # PCAReconstruction
+│   │   │                       # PCAReconstruction, classical_gaussian.py (MCD fallback)
 │   │   └── sequential/         # HMMDetector, HawkesDetector
-│   ├── features/               # scaler.py, temporal_features.py (pipeline), event_driven_extractors.py (didactic)
+│   ├── features/               # common.py (entropy, EPSILON), scaler.py, temporal_features.py (pipeline), event_driven_extractors.py (didactic)
 │   ├── evaluation/             # metrics.py, synthetic_injection.py
 │   ├── ingestion/              # casas_loader.py (CLI CSV->SQLite), sqlite_manager.py
 │   └── teaching/               # datasets.py (synthetic 2-D), visualization.py (plotly helpers)
@@ -100,11 +101,15 @@ def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
   daily features (n_events, n_sensors, activity_hours, avg_event_gap_minutes, peak_hour,
   night_activity, event_frequency_std, entropy_hourly, entropy_sensor), then
   `FeatureScaler` (z-score, fit on train only).
-- **Didactic tab** uses the 3 event-driven extractors in
+- **Didactic tab** uses the event-driven extractors in
   `src/features/event_driven_extractors.py`:
   `WindowAggregationExtractor` (contextual + collective), `IntervalStatisticsExtractor`
   (point + collective, CV/Fano factor), `NGramTransitionExtractor` (first-order Markov,
-  sequence collective). Each exposes `extract(df) -> (X, dates)` and `diagnostics(group)`.
+  sequence collective), and `NextEventTransitionExtractor` (first-order Markov
+  *prediction* — learns the normal transition probabilities and scores each transition
+  by log-likelihood, so a single unlikely next-sensor flags a point anomaly; the
+  "predict the next event and flag deviations" family from DeepLog / Chandola et al.).
+  Each exposes `extract(df) -> (X, dates)` and `diagnostics(group)`.
 - Known overlap: `WindowAggregationExtractor` largely duplicates `TemporalFeatureExtractor`.
   Consolidating them is a roadmap candidate.
 
@@ -124,7 +129,7 @@ def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 |---|---|
 | Launch the app | `scripts/run.sh` (Linux/WSL) or `scripts/run.bat` (Windows) |
 | Launch app only (deps ready) | `PYTHONPATH=src streamlit run app/streamlit_app.py` |
-| CLI evaluation | `python scripts/run_evaluation.py --source real` |
+| CLI evaluation | `python scripts/run_evaluation.py --source real` (add `--extractor next_event` to use the Markov next-event extractor instead of the 9-feature temporal one) |
 | Generate synthetic data | `python scripts/generate_test_fixtures.py` |
 | Load CASAS data to SQLite | `python src/ingestion/casas_loader.py --source real\|synthetic` |
 
@@ -161,13 +166,14 @@ Priorities are indicative; update this list as work progresses.
 1. **Packaging**: replace `sys.path.insert` hacks with a proper package layout
    (`pyproject.toml` + `pip install -e .`), add `pytest`, `ruff`/`flake8`, type hints
    (`typing`/`py.typed`).
-2. **Consolidate feature extraction**: merge `temporal_features.py` +
-   `event_driven_extractors.py` into one coherent `features` API (the didactic 3-method
-   split is worth keeping, but the pipeline/tutorial duplication should go).
-3. **Sequential detectors**: `HawkesDetector` currently scores `mean(X, axis=1)` and does
-   not use the fitted Hawkes model — either implement a real intensity-based score or
-   document it clearly as illustrative. Make `tick`/`hmmlearn`/`pyod` imports lazy so the
-   core package imports without them.
+2. **Consolidate feature extraction**: done — the daily-aggregation logic shared by
+   `TemporalFeatureExtractor` (pipeline) and `WindowAggregationExtractor` (didactic) now
+   lives in a single helper `daily_aggregates`/`extract_by_date` in `features/common.py`;
+   the didactic 3-method split (`Window`, `Interval`, `NGram`) is preserved.
+3. **Sequential detectors**: done — `HawkesDetector` uses a real intensity-based score
+   (negative conditional log-likelihood under an exponential-kernel Hawkes model, Ogata's
+   forward recursion in numpy; `tick` is no longer required) and `hmmlearn`/`pyod` imports
+   are lazy (`HMMDetector.fit`, `LOFDetector.fit`), so the core package imports without them.
 4. **CLI/UX parity**: done — ZScore and PCAReconstruction exposed in the UI via the
    unified `DETECTOR_REGISTRY` (`app/streamlit_config.py` + `src/detectors/factory.py`).
 5. **Tests**: add unit tests for metrics, synthetic injection, feature extractors, and each
@@ -176,8 +182,16 @@ Priorities are indicative; update this list as work progresses.
    stabilizes.
 7. **Cleanup**: done — `DETECTOR_*` config unified into a single `DETECTOR_REGISTRY`
    (`app/streamlit_config.py`) shared by the sidebar and the teaching track; dead code
-   `src/teaching/visualization.py` is still pending removal.
+   `src/teaching/visualization.py` removed; EIForest folded into `IsolationForestDetector`
+   via a `sliced_path` param (fixed per registry variant).
 8. **Language pass**: convert remaining Spanish comments/docstrings to English.
+9. **Detector-stack consolidation**: done — HMM score normalization unified to the canonical
+   `(score_min, score_max)` convention; NaN guard added at the `as_float_array` choke point;
+   percentile family centralized (`DEFAULT_THRESHOLD_PERCENTILE`, `contamination_percentile`);
+   `hmmlearn`/`pyod` made lazy; MCD detectors (EllipticEnvelope, RobustCovariance) fall back
+   to a classical Gaussian on degenerate input (`vectorial/classical_gaussian.py`); teaching
+   track gained overlays for OC-SVM (decision boundary), Z-Score (axis-aligned band),
+   PCA Reconstruction (principal axes) and IForest (iso-lines).
 
 ## OpenCode setup
 

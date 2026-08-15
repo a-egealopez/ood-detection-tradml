@@ -1,7 +1,10 @@
 import numpy as np
 
+from detectors.base import BaseDetector
+from detectors.constants import EPSILON
 
-class ZScoreDetector:
+
+class ZScoreDetector(BaseDetector):
     """Univariate Z-score detector (per-feature) with score normalization to [0, 1].
 
     A point is anomalous when any of its per-feature absolute z-scores exceeds the
@@ -17,7 +20,7 @@ class ZScoreDetector:
         self.score_max = None
 
     def fit(self, X: np.ndarray) -> "ZScoreDetector":
-        X = np.asarray(X, dtype=float)
+        X = self._to_float(X)
         self.mu = X.mean(axis=0)
         self.sigma = X.std(axis=0)
 
@@ -27,19 +30,18 @@ class ZScoreDetector:
         return self
 
     def _max_abs_z(self, X: np.ndarray) -> np.ndarray:
-        z = (X - self.mu) / (self.sigma + 1e-8)
+        z = (X - self.mu) / (self.sigma + EPSILON)
         return np.max(np.abs(z), axis=1)
 
     def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         if self.mu is None or self.sigma is None:
-            raise RuntimeError("You must call fit() before predict()")
+            self._check_fitted("mu/sigma")
 
-        X = np.asarray(X, dtype=float)
+        X = self._to_float(X)
         zmax = self._max_abs_z(X)
 
-        anomalies = (zmax > self.threshold).astype(int)
-        scores = (zmax - self.score_min) / (self.score_max - self.score_min + 1e-8)
-        scores = np.clip(scores, 0.0, 1.0)
+        anomalies = self._above_threshold(zmax, self.threshold)
+        scores = self._scores_to_unit(zmax, self.score_min, self.score_max)
 
         return anomalies, scores
 
@@ -61,5 +63,5 @@ if __name__ == "__main__":
     print(f" Anomalies detected: {anomalies.sum()} / {len(anomalies)}")
     print(f" Score range: [{scores.min():.3f}, {scores.max():.3f}]")
     assert anomalies[80:].sum() > 10
-    assert np.isfinite(scores).all()
+    det._assert_unit_range(scores)
     print(" Validation OK")

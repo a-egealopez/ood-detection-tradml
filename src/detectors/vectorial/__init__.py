@@ -1,4 +1,3 @@
-from .eiforest_detector import ExtendedIForestDetector
 from .elliptic_envelope_detector import EllipticEnvelopeDetector
 from .iforest_detector import IsolationForestDetector
 from .knn_detector import KNNDetector
@@ -11,7 +10,6 @@ from .zscore_detector import ZScoreDetector
 
 __all__ = [
     "EllipticEnvelopeDetector",
-    "ExtendedIForestDetector",
     "IsolationForestDetector",
     "KNNDetector",
     "LOFDetector",

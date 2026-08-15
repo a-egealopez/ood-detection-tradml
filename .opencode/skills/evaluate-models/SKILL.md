@@ -21,6 +21,7 @@ Requires dependencies installed (`pip install -r requirements.txt`) and data loa
 | Option | Default | Purpose |
 |---|---|---|
 | `--source real\|synthetic` | `real` | Which database to evaluate |
+| `--extractor temporal\|next_event` | `temporal` | Feature extractor: `temporal` (9 daily features) or `next_event` (first-order Markov: log-probability of predicting the next sensor) |
 | `--houses aruba cairo ...` | all | Houses to evaluate independently |
 | `--train-split` | `0.7` | Fraction of days used for training (rest = holdout) |
 | `--zscore-threshold` | `3.0` | Z-score cutoff for `ZScoreDetector` |
@@ -39,9 +40,19 @@ PYTHONPATH=src python scripts/run_evaluation.py --source real --houses aruba cai
 
 ## What the CLI evaluates
 
-Per house: `TemporalFeatureExtractor` (9 daily features) → `FeatureScaler` (z-score, fit
-on train) → `EnsembleDetector` over `[ZScore, IsolationForest, PCAReconstruction]` →
-synthetic anomaly injection on the holdout → precision / recall / F1 / AUROC.
+Per house, with `--extractor temporal` (default): `TemporalFeatureExtractor` (9 daily
+features) → `FeatureScaler` (z-score, fit on train) → `EnsembleDetector` over
+`[ZScore, IsolationForest, PCAReconstruction]` → synthetic anomaly injection on the
+holdout → precision / recall / F1 / AUROC.
+
+With `--extractor next_event`: `NextEventTransitionExtractor` learns the normal
+transition probabilities from the **train days only** (honest holdout), then scores
+every day's sequence by log-likelihood (3 features: `mean_logprob`, `min_logprob`,
+`rare_transition_rate`) before the same scaling / ensemble / injection steps.
+
+Note: `next_event` targets *sequence* anomalies, so it will not match `temporal` on
+feature-magnitude injection (which shifts numeric columns); a lower AUROC there is
+expected and reflects a different anomaly axis, not a bug.
 
 ## Interpreting AUROC
 

@@ -52,10 +52,8 @@ AUROC_BAD = ERROR
 
 PLOTLY_CONFIG = {"displayModeBar": False, "responsive": True}
 
-# Standard chart heights
-HEIGHT_SMALL = 300
+# Standard chart height
 HEIGHT_MEDIUM = 380
-HEIGHT_LARGE = 460
 
 
 # ----------------------------------------------------------------------------
@@ -64,17 +62,6 @@ HEIGHT_LARGE = 460
 def family_color(category: str) -> str:
     """Accent color for a detector category (falls back to PRIMARY)."""
     return FAMILY_COLORS.get(category, PRIMARY)
-
-
-def auroc_color(auroc: float | None) -> str:
-    """Semantic color for an AUROC value: good / acceptable / poor."""
-    if auroc is None:
-        return MUTED
-    if auroc >= 0.80:
-        return AUROC_GOOD
-    if auroc >= 0.70:
-        return AUROC_MID
-    return AUROC_BAD
 
 
 def badge(text: str, color: str, size: str = "0.72em") -> None:
@@ -265,31 +252,6 @@ h1, h2, h3, h4 { color: var(--text-primary); letter-spacing: -0.01em; }
   border: 1px solid; font-size: 13px; line-height: 1.5;
 }
 .info-card .ic-icon { font-size: 16px; line-height: 1.3; flex: 0 0 auto; }
-
-/* Stat metric card (KPIs, house AUROC cards) */
-.stat-card {
-  padding: 14px 16px; border-radius: 10px; text-align: center;
-  border: 1px solid var(--border); background: var(--bg-surface);
-  border-top: 3px solid var(--card-accent, var(--action-primary));
-}
-.stat-card .stat-label {
-  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--text-muted); margin-bottom: 4px;
-}
-.stat-card .stat-value {
-  font-size: 26px; font-weight: 800; line-height: 1.1;
-  font-variant-numeric: tabular-nums;
-}
-.stat-card .stat-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
-
-/* Read-only parameter chips (advanced cards) */
-.param-chip {
-  display: inline-flex; align-items: baseline; gap: 6px;
-  padding: 2px 9px; margin: 2px 4px 2px 0; border-radius: 6px;
-  font-size: 11px; font-family: 'SF Mono', 'Menlo', monospace;
-  background: rgba(255,255,255,0.04); border: 1px solid var(--border);
-}
-.param-chip b { color: var(--text-primary); }
 
 /* Small responsive tweaks for narrow widths */
 @media (max-width: 768px) {

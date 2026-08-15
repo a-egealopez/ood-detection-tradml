@@ -17,7 +17,11 @@ from evaluation.synthetic_injection import (
     describe_scores,
     evaluate_with_synthetic_anomalies,
 )
-from features import FeatureScaler, TemporalFeatureExtractor
+from features import (
+    FeatureScaler,
+    NextEventTransitionExtractor,
+    TemporalFeatureExtractor,
+)
 from ingestion.sqlite_manager import SQLiteDataManager
 
 logger = setup_logging()
@@ -32,6 +36,14 @@ def parse_args():
         choices=["real", "synthetic"],
         default="real",
         help="Qué fuente de datos evaluar: 'real' (data/real/) o 'synthetic' (data/synthetic/)",
+    )
+    parser.add_argument(
+        "--extractor",
+        choices=["temporal", "next_event"],
+        default="temporal",
+        help="Extractor de features: 'temporal' (9 features diarias, default) o "
+        "'next_event' (Markov de primer orden: 3 features de log-probabilidad de "
+        "predicción del siguiente sensor).",
     )
     parser.add_argument(
         "--houses",
@@ -75,16 +87,34 @@ def run_house(db: SQLiteDataManager, house_id: str, args) -> dict:
     if df_house.empty:
         return {"house_id": house_id, "status": "sin datos"}
 
-    extractor = TemporalFeatureExtractor()
-    X, _dates = extractor.extract(df_house)
+    df_house = df_house.copy()
+    df_house["timestamp"] = pd.to_datetime(df_house["timestamp"])
+    df_house["date"] = df_house["timestamp"].dt.date
+    dates = sorted(df_house["date"].unique())
+    if len(dates) < 10:
+        return {
+            "house_id": house_id,
+            "status": f"muy pocos días ({len(dates)}), se omite",
+        }
 
-    if len(X) < 10:
-        return {"house_id": house_id, "status": f"muy pocos días ({len(X)}), se omite"}
+    split_idx = max(1, int(len(dates) * args.train_split))
+    train_dates = set(dates[:split_idx])
+    df_train = df_house[df_house["date"].isin(train_dates)]
+    df_full = df_house
+
+    if args.extractor == "next_event":
+        extractor = NextEventTransitionExtractor()
+        # Learn the normal transition probabilities from the train days only, so
+        # the holdout is scored against a model that never saw it.
+        extractor.fit(df_train)
+        X, _dates = extractor.extract(df_full)
+    else:
+        extractor = TemporalFeatureExtractor()
+        X, _dates = extractor.extract(df_full)
 
     scaler = FeatureScaler()
     X_scaled = scaler.fit_transform(X)
 
-    split_idx = max(1, int(len(X_scaled) * args.train_split))
     X_train, X_holdout = X_scaled[:split_idx], X_scaled[split_idx:]
 
     ensemble = EnsembleDetector(

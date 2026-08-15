@@ -7,13 +7,14 @@ from sklearn.metrics import roc_auc_score
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from evaluation.metrics import compute_metrics
+from detectors.constants import DEFAULT_RANDOM_STATE
 
 
 def inject_synthetic_anomalies(
     X: np.ndarray,
     contamination: float = 0.1,
     magnitude: float = 6.0,
-    random_state: int = 42,
+    random_state: int = DEFAULT_RANDOM_STATE,
 ):
     rng = np.random.default_rng(random_state)
     X = np.asarray(X, dtype=float)
@@ -45,7 +46,7 @@ def evaluate_with_synthetic_anomalies(
     X_holdout: np.ndarray,
     contamination: float = 0.1,
     magnitude: float = 6.0,
-    random_state: int = 42,
+    random_state: int = DEFAULT_RANDOM_STATE,
 ) -> dict:
     if len(X_holdout) < 5:
         raise ValueError(

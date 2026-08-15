@@ -15,7 +15,6 @@ from views import (
     DATA_2D,
     render_casas_view,
     render_data_step,
-    render_documentation_view,
     render_feature_extraction_view,
     render_playground_view,
 )
@@ -27,26 +26,12 @@ inject_theme()
 logger = setup_logging()
 
 
-# ============================================================================
-# Top bar: title + Documentation button (opens a dialog, no sidebar)
-# ============================================================================
-@st.dialog("Documentation & Concepts")
-def documentation_dialog() -> None:
-    render_documentation_view()
-
-
-col_title, col_docs = st.columns([5, 1])
-with col_title:
-    st.title("Anomaly Detection: Health IoT (CASAS)")
-    st.caption(
-        "Unsupervised ensemble of vectorial and sequential detectors. Follow the "
-        "guided workflow: pick data, inspect feature extraction, then run the "
-        "detectors."
-    )
-with col_docs:
-    st.write("")
-    if st.button("📖 Documentation", key="docs_btn", use_container_width=True):
-        documentation_dialog()
+st.title("Anomaly Detection: Health IoT (CASAS)")
+st.caption(
+    "Unsupervised ensemble of vectorial and sequential detectors. Follow the "
+    "guided workflow: pick data, inspect feature extraction, then run the "
+    "detectors."
+)
 
 st.markdown("---")
 

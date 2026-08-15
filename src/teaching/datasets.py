@@ -12,6 +12,8 @@ from sklearn.datasets import (
 )
 from typing import ClassVar
 
+from detectors.constants import DEFAULT_RANDOM_STATE
+
 
 class SyntheticDatasetGenerator:
     """Genera datasets sintéticos con características conocidas para visualización."""
@@ -28,7 +30,7 @@ class SyntheticDatasetGenerator:
         dataset_name: str,
         n_samples: int = 300,
         contamination: float = 0.1,
-        random_state: int = 42,
+        random_state: int = DEFAULT_RANDOM_STATE,
     ) -> tuple[np.ndarray, np.ndarray, str]:
         """
         Genera dataset sintético con anomalías inyectadas.

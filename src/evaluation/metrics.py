@@ -1,22 +1,27 @@
 import numpy as np
-import pandas as pd
+
+
+def _counts(y_true, y_pred) -> tuple[int, int, int, int]:
+    """Return (tp, fp, fn, tn) for binary 0/1 labels, computed once."""
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+
+    tp = int(np.sum((y_true == 1) & (y_pred == 1)))
+    fp = int(np.sum((y_true == 0) & (y_pred == 1)))
+    fn = int(np.sum((y_true == 1) & (y_pred == 0)))
+    tn = int(np.sum((y_true == 0) & (y_pred == 0)))
+    return tp, fp, fn, tn
 
 
 def precision(y_true, y_pred) -> float:
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
-    tp = np.sum((y_true == 1) & (y_pred == 1))
-    fp = np.sum((y_true == 0) & (y_pred == 1))
+    tp, fp, _, _ = _counts(y_true, y_pred)
     if tp + fp == 0:
         return 0.0
     return float(tp / (tp + fp))
 
 
 def recall(y_true, y_pred) -> float:
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
-    tp = np.sum((y_true == 1) & (y_pred == 1))
-    fn = np.sum((y_true == 1) & (y_pred == 0))
+    tp, _, fn, _ = _counts(y_true, y_pred)
     if tp + fn == 0:
         return 0.0
     return float(tp / (tp + fn))
@@ -37,14 +42,7 @@ def accuracy(y_true, y_pred) -> float:
 
 
 def confusion_matrix(y_true, y_pred) -> np.ndarray:
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
-
-    tn = np.sum((y_true == 0) & (y_pred == 0))
-    fp = np.sum((y_true == 0) & (y_pred == 1))
-    fn = np.sum((y_true == 1) & (y_pred == 0))
-    tp = np.sum((y_true == 1) & (y_pred == 1))
-
+    tp, fp, fn, tn = _counts(y_true, y_pred)
     return np.array([[tn, fp], [fn, tp]])
 
 
@@ -58,11 +56,6 @@ def compute_metrics(y_true, y_pred) -> dict:
     }
 
 
-def metrics_to_dataframe(metrics: dict) -> pd.DataFrame:
-    row = {k: v for k, v in metrics.items() if k != "confusion_matrix"}
-    return pd.DataFrame([row])
-
-
 if __name__ == "__main__":
     y_true = np.array([0, 0, 0, 1, 1, 0, 1, 0, 0, 1])
     y_pred = np.array([0, 0, 1, 1, 1, 0, 0, 0, 0, 1])
@@ -74,6 +67,3 @@ if __name__ == "__main__":
     print(f" F1:        {metrics['f1']:.3f}")
     print(f" Accuracy:  {metrics['accuracy']:.3f}")
     print(f" Confusion Matrix:\n{metrics['confusion_matrix']}")
-
-    df = metrics_to_dataframe(metrics)
-    print(f"\n✓ DataFrame:\n{df}")

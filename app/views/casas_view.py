@@ -24,7 +24,9 @@ from components import (
     family_header,
     info_box,
     metric_row,
+    read_param_values,
     render_param_widgets,
+    render_resources,
 )
 from data_access import list_houses, load_house_events
 from detectors.factory import build_detector
@@ -35,7 +37,6 @@ from streamlit_config import (
     DETECTOR_NAMES,
     DETECTOR_REGISTRY,
     ENSEMBLE_DEFAULTS,
-    SYNTHETIC_EVALUATION_DEFAULTS,
 )
 from theme import (
     ANOMALY,
@@ -53,15 +54,6 @@ from features import FeatureScaler, TemporalFeatureExtractor
 # ============================================================================
 # MAIN-AREA CONFIGURATION (moved out of the sidebar, like the Features step)
 # ============================================================================
-def _detector_param_values(source: str, name: str) -> dict:
-    """Current tuning values for a detector (read from the sliders' session keys)."""
-    spec = DETECTOR_REGISTRY[name]
-    return {
-        p.kwarg: st.session_state.get(f"adv_{source}_{name}_{p.kwarg}", p.default)
-        for p in spec.params
-    }
-
-
 def _detector_params_from_session(source: str, names: list[str]) -> dict:
     """Reassemble ``{name: {kwarg: value}}`` from the tuning sliders of each card."""
     params = {}
@@ -69,10 +61,7 @@ def _detector_params_from_session(source: str, names: list[str]) -> dict:
         spec = DETECTOR_REGISTRY.get(name)
         if spec is None:
             continue
-        params[name] = {
-            p.kwarg: st.session_state.get(f"adv_{source}_{name}_{p.kwarg}", p.default)
-            for p in spec.params
-        }
+        params[name] = read_param_values(spec.params, f"adv_{source}_{name}")
     return params
 
 
@@ -108,10 +97,7 @@ def _render_ensemble_config(source: str) -> dict:
 
     return {
         "ensemble_mode": ensemble_mode,
-        "weighting_scheme": "Uniform",
         "threshold_percentile": float(ENSEMBLE_DEFAULTS["threshold_percentile"]),
-        "contamination": SYNTHETIC_EVALUATION_DEFAULTS["contamination"],
-        "magnitude": SYNTHETIC_EVALUATION_DEFAULTS["magnitude"],
     }
 
 
@@ -190,19 +176,19 @@ def _render_detector_card(
         help="Click to include / exclude this detector from the ensemble.",
     )
 
-    values = _detector_param_values(source, name)
+    values = _detector_params_from_session(source, [name])[name]
     try:
         detector = build_detector(name, values)
         detector.fit(features.X_scaled[: features.train_n])
         _, scores = detector.predict(features.X_scaled)
         view = st.segmented_control(
             "Visualization",
-            ["Time", "Score cloud"],
-            default="Score cloud",
+            ["Time", "Score map"],
+            default="Score map",
             label_visibility="collapsed",
             key=f"card_view_{source}_{preview_house}_{name}",
         )
-        if view == "Score cloud":
+        if view == "Score map":
             fig = _build_detector_cloud(name, features.X_2d, features.pca, scores, detector)
         else:
             fig = _build_detector_timeline(features.dates, scores, name)
@@ -279,7 +265,6 @@ def _resolve_detect_config(source: str) -> dict:
 
     return {
         "houses": houses,
-        "advanced": True,
         "detector_names": detector_names,
         "detector_params": _detector_params_from_session(source, detector_names),
     }
@@ -290,11 +275,8 @@ def _combine_config(source: str, detect: dict, ensemble: dict) -> dict:
     pipeline_kwargs = {
         "detector_names": detect["detector_names"],
         "detector_params": detect["detector_params"],
-        "weighting_scheme": ensemble["weighting_scheme"],
         "ensemble_mode": ensemble["ensemble_mode"],
         "threshold_percentile": ensemble["threshold_percentile"],
-        "contamination": ensemble["contamination"],
-        "magnitude": ensemble["magnitude"],
     }
     signatures = (
         source,
@@ -307,10 +289,7 @@ def _combine_config(source: str, detect: dict, ensemble: dict) -> dict:
             )
         ),
         ensemble["ensemble_mode"],
-        ensemble["weighting_scheme"],
         ensemble["threshold_percentile"],
-        ensemble["contamination"],
-        ensemble["magnitude"],
     )
     return {
         **detect,
@@ -397,10 +376,16 @@ def _render_house_results(source: str, house_view: str, r: Any) -> None:
         )
     )
     if threshold is not None:
+        mode = r.ensemble.ensemble_mode
+        label = (
+            f"majority ({threshold:.2f})"
+            if mode == "hard"
+            else f"threshold (p{getattr(r.ensemble, 'ensemble_threshold_percentile', '?')})"
+        )
         fig_timeline.add_hline(
             y=threshold,
             line={"color": ANOMALY, "width": 1.5, "dash": "dash"},
-            annotation_text=f"threshold (p{getattr(r.ensemble, 'ensemble_threshold_percentile', '?')})",
+            annotation_text=label,
             annotation_position="top right",
         )
     apply_layout(
@@ -503,7 +488,7 @@ def _build_detector_cloud(
     scores: np.ndarray,
     detector: Any,
 ) -> go.Figure:
-    """2-D score cloud over the PCA plane, like the 2D Playground.
+    """2-D score map over the PCA plane, like the 2D Playground.
 
     A mesh gradient (the detector's own score field over the grid, drawn with
     the same colorscale as the playground) sits under the daily points, which
@@ -534,18 +519,14 @@ def _build_detector_cloud(
             y=X_2d[:, 1],
             mode="markers",
             marker={
-                "size": 7,
+                "size": 9,
                 "color": scores,
                 "colorscale": [[0, PRIMARY], [1, ANOMALY]],
                 "cmin": 0,
                 "cmax": 1,
-                "opacity": 0.9,
+                "opacity": 0.95,
                 "line": {"width": 0.5, "color": "rgba(255,255,255,0.35)"},
-                "colorbar": {
-                    "title": {"text": "anomaly score", "font": {"size": 11}},
-                    "thickness": 12,
-                    "len": 0.7,
-                },
+                "showscale": False,
             },
             hovertemplate="score: %{marker.color:.3f}<extra></extra>",
         )
@@ -588,6 +569,7 @@ def render_casas_view(source: str, stage: str = "detect") -> None:
 
     detect = _resolve_detect_config(source)
     ensemble = _render_ensemble_config(source)
+    render_resources("Ensemble detectors")
 
     config = _combine_config(source, detect, ensemble)
     results = _run_pipeline(source, config)

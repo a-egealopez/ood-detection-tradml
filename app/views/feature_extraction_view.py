@@ -24,6 +24,7 @@ from components import (
     chart_pair,
     clickable_cards,
     colored_section_header,
+    render_resources,
 )
 from data_access import load_all_events
 from theme import (
@@ -40,6 +41,7 @@ from theme import (
 
 from features.event_driven_extractors import (
     IntervalStatisticsExtractor,
+    NextEventTransitionExtractor,
     NGramTransitionExtractor,
     WindowAggregationExtractor,
     generate_synthetic_events,
@@ -61,45 +63,25 @@ METHOD_DESCRIPTIONS = {
         "The entropy of the transition matrix measures how predictable the event "
         "sequence is."
     ),
+    "Next-Event Prediction (Markov)": (
+        "Learns the transition probabilities of the normal sensor sequence, then "
+        "scores each real transition by its likelihood. A very unlikely next sensor "
+        "flags a single-event anomaly (DeepLog / n-gram baseline)."
+    ),
 }
 
 METHOD_GLYPHS = {
     "Window Aggregation": "◧",
     "Inter-Event Interval (IEI)": "≋",
     "N-gram Transition (Markov)": "⇄",
+    "Next-Event Prediction (Markov)": "➤",
 }
 
 METHOD_COLORS = {
     "Window Aggregation": FAMILY_DENSITY,
     "Inter-Event Interval (IEI)": FAMILY_DISTANCE,
     "N-gram Transition (Markov)": FAMILY_BOUNDARY,
-}
-
-METHOD_ANOMALY_TYPES = {
-    "Window Aggregation": (
-        "Contextual + Collective (full day)",
-        (
-            "The context (hour/time-slot) is encoded in the features (e.g. "
-            "`night_activity_ratio`) and each vector summarizes a whole day: it detects "
-            "atypical days as a set, not isolated events."
-        ),
-    ),
-    "Inter-Event Interval (IEI)": (
-        "Point (raw) or Collective (aggregated)",
-        (
-            "Raw intervals can flag a single anomalous gap (point). The vector extracted "
-            "here is aggregated per day, so it detects days with an atypical overall "
-            "'rhythm' (collective), not the exact instant of the gap."
-        ),
-    ),
-    "N-gram Transition (Markov)": (
-        "Collective sequence (pattern-based)",
-        (
-            "Only looks at the order of events, not their instant or magnitude: it "
-            "detects routines that break the usual sequence pattern even when each "
-            "sensor and interval is individually normal."
-        ),
-    ),
+    "Next-Event Prediction (Markov)": FAMILY_BOUNDARY,
 }
 
 
@@ -233,12 +215,69 @@ def _schematic_markov() -> go.Figure:
     return fig
 
 
+def _schematic_next_event() -> go.Figure:
+    """A transition with high vs. low likelihood under the learned model."""
+    seq = "A B A B"
+    tokens = seq.split()
+    n = len(tokens)
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n)),
+            y=[0] * n,
+            mode="markers+text",
+            marker={"size": 16, "color": PRIMARY_SOFT},
+            text=tokens,
+            textposition="top center",
+            textfont={"size": 11, "color": TEXT},
+            hoverinfo="skip",
+        )
+    )
+    for i in range(n - 1):
+        color = ANOMALY if i == 2 else PRIMARY_SOFT
+        fig.add_annotation(
+            x=i + 1,
+            y=0,
+            ax=i,
+            ay=0,
+            xref="x",
+            yref="y",
+            axref="x",
+            ayref="y",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1.2,
+            arrowwidth=1.5,
+            arrowcolor=color,
+        )
+    fig.add_annotation(
+        x=1,
+        y=-1.1,
+        text="A→B likely (P high)",
+        showarrow=False,
+        font={"color": PRIMARY_SOFT, "size": 10},
+    )
+    fig.add_annotation(
+        x=3,
+        y=-1.1,
+        text="B→A unlikely (P low)  →  anomaly",
+        showarrow=False,
+        font={"color": ANOMALY, "size": 10},
+    )
+    apply_layout(fig, None, height=220)
+    fig.update_xaxes(visible=False)
+    fig.update_yaxes(visible=False, range=[-1.6, 1])
+    return fig
+
+
 def _method_schematic(method: str) -> go.Figure:
     if method == "Window Aggregation":
         return _schematic_window()
     if method == "Inter-Event Interval (IEI)":
         return _schematic_iei()
-    return _schematic_markov()
+    if method == "N-gram Transition (Markov)":
+        return _schematic_markov()
+    return _schematic_next_event()
 
 
 # Short card copy for the method picker grid.
@@ -255,28 +294,16 @@ METHOD_CARDS = {
         "desc": "Sensor sequence patterns (Markov chain)",
         "badge": "Detects: Collective sequence",
     },
+    "Next-Event Prediction (Markov)": {
+        "desc": "Score each transition by its likelihood",
+        "badge": "Detects: Point + Collective sequence",
+    },
 }
 
 
 # ============================================================================
 # Inspector helpers (synthetic pattern picker lives with the Data step)
 # ============================================================================
-def _render_method_explainer(method: str) -> None:
-    """Written explanation of the selected method (paired with the schematic)."""
-    color = METHOD_COLORS[method]
-    anomaly_type, anomaly_rationale = METHOD_ANOMALY_TYPES[method]
-    st.markdown(
-        f"<div class='stage-card' style='color:{color};'>"
-        f"<div class='stage-head'><span style='font-size:20px;'>{METHOD_GLYPHS[method]}</span>"
-        f"<span class='stage-title'>{method}</span></div>"
-        f"<div class='stage-desc'>{METHOD_DESCRIPTIONS[method]}</div>"
-        f"<span class='stage-badge' style='background:{color}1e;'>"
-        f"<span class='glyph'>◈</span> Detects: {anomaly_type}</span>"
-        f"<div class='stage-desc'>{anomaly_rationale}</div></div>",
-        unsafe_allow_html=True,
-    )
-
-
 def _plot_window_aggregation(
     group: pd.DataFrame, diag: dict
 ) -> tuple[go.Figure, go.Figure]:
@@ -423,6 +450,68 @@ def _plot_ngram_transition(diag: dict) -> tuple[go.Figure, go.Figure]:
     return strip, heatmap
 
 
+def _plot_next_event(
+    group: pd.DataFrame, diag: dict
+) -> tuple[go.Figure, go.Figure]:
+    seq = diag["sequence"]
+    tokens = seq[:40]
+    transitions = diag["transitions"][:39]
+    n = len(tokens)
+
+    strip = go.Figure()
+    strip.add_trace(
+        go.Scatter(
+            x=list(range(n)),
+            y=[0] * n,
+            mode="markers+text",
+            marker={"size": 14, "color": PRIMARY_SOFT},
+            text=tokens,
+            textposition="top center",
+            textfont={"size": 9, "color": TEXT},
+            hoverinfo="skip",
+        )
+    )
+    for i, tr in enumerate(transitions):
+        rare = tr["rare"]
+        strip.add_annotation(
+            x=i + 1,
+            y=0,
+            ax=i,
+            ay=0,
+            xref="x",
+            yref="y",
+            axref="x",
+            ayref="y",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=1.5,
+            arrowcolor=ANOMALY if rare else PRIMARY_SOFT,
+        )
+    apply_layout(strip, "Sensor sequence; red arrows = unlikely transitions", height=260)
+    strip.update_xaxes(visible=False)
+    strip.update_yaxes(visible=False, range=[-1, 1])
+
+    logprobs = [tr["logprob"] for tr in diag["transitions"]]
+    colors = [
+        ANOMALY if tr["rare"] else PRIMARY_SOFT for tr in diag["transitions"]
+    ]
+    bar = go.Figure(
+        go.Bar(
+            x=list(range(len(logprobs))),
+            y=logprobs,
+            marker_color=colors,
+            customdata=[tr["to"] for tr in diag["transitions"]],
+            hovertemplate="→ %{customdata}<br>log P = %{y:.2f}<extra></extra>",
+        )
+    )
+    apply_layout(bar, "Log-probability of each transition (lower = more anomalous)")
+    bar.update_xaxes(title_text="Transition index")
+    bar.update_yaxes(title_text="log P(next | current)")
+
+    return strip, bar
+
+
 def _load_stream(data_source: str) -> pd.DataFrame:
     """Build the event stream from the config already chosen in the Data step."""
     if data_source == "Synthetic":
@@ -481,6 +570,9 @@ def _render_inspector(data_source: str, method_name: str) -> None:
         extractor = WindowAggregationExtractor()
     elif method_name == "Inter-Event Interval (IEI)":
         extractor = IntervalStatisticsExtractor()
+    elif method_name == "Next-Event Prediction (Markov)":
+        extractor = NextEventTransitionExtractor()
+        extractor.fit(df)
     else:
         extractor = NGramTransitionExtractor()
         extractor.fit_vocabulary(df)
@@ -511,6 +603,8 @@ def _render_inspector(data_source: str, method_name: str) -> None:
             fig_a, fig_b = _plot_window_aggregation(group, diag)
         elif method_name == "Inter-Event Interval (IEI)":
             fig_a, fig_b = _plot_interval_statistics(group, diag)
+        elif method_name == "Next-Event Prediction (Markov)":
+            fig_a, fig_b = _plot_next_event(group, diag)
         else:
             fig_a, fig_b = _plot_ngram_transition(diag)
 
@@ -525,6 +619,11 @@ def _render_inspector(data_source: str, method_name: str) -> None:
         if method_name == "N-gram Transition (Markov)":
             st.caption(
                 "Strip: sensor sequence (X = event order). Matrix: P(next sensor | current)."
+            )
+        if method_name == "Next-Event Prediction (Markov)":
+            st.caption(
+                "Strip: sequence with arrows colored by likelihood. Bar: log P of each "
+                "transition (low = anomalous)."
             )
 
     st.markdown("#### Feature vectors for the selected days")
@@ -579,11 +678,8 @@ def render_feature_extraction_view() -> None:
     ]
     method = clickable_cards(method_specs, key="fx_method")
 
-    col_viz, col_text = st.columns([1.15, 1], gap="medium")
-    with col_viz:
-        display_chart(_method_schematic(method), key=f"fx_schematic_{method}")
-    with col_text:
-        _render_method_explainer(method)
+    display_chart(_method_schematic(method), key=f"fx_schematic_{method}")
+    render_resources(method)
 
     st.markdown("---")
     _render_inspector(data_source, method)

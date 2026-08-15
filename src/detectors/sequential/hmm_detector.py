@@ -1,9 +1,15 @@
 import numpy as np
-from hmmlearn import hmm
+
+from detectors.base import BaseDetector
+from detectors.constants import DEFAULT_HMM_N_ITER
 
 
-class HMMDetector:
-    def __init__(self, n_components: int = 3, threshold_percentile: float = 90):
+class HMMDetector(BaseDetector):
+    def __init__(
+        self,
+        n_components: int = 3,
+        threshold_percentile: float = 90,
+    ):
         self.n_components = n_components
         self.threshold_percentile = threshold_percentile
         self.model = None
@@ -12,8 +18,14 @@ class HMMDetector:
         self.score_max = None
 
     def fit(self, X: np.ndarray) -> "HMMDetector":
-        X = np.asarray(X, dtype=float)
-        self.model = hmm.GaussianHMM(n_components=self.n_components, n_iter=100)
+        # hmmlearn is imported lazily so the core detector package can be imported
+        # without it (hmmlearn is an optional/slow dependency; only HMM needs it).
+        from hmmlearn import hmm
+
+        X = self._to_float(X)
+        self.model = hmm.GaussianHMM(
+            n_components=self.n_components, n_iter=DEFAULT_HMM_N_ITER
+        )
         self.model.fit(X)
 
         scores_train = np.array([self.model.score(X[i : i + 1]) for i in range(len(X))])
@@ -21,9 +33,12 @@ class HMMDetector:
         self.score_min = float(scores_train.min())
         self.score_max = float(scores_train.max())
 
-        # Umbral sobre el score normalizado (top threshold_percentile = anomalía).
-        scores_norm = (self.score_max - scores_train) / (
-            self.score_max - self.score_min + 1e-8
+        # The HMM score is a log-likelihood: higher = more normal. Normalize it to
+        # [0, 1] with the same canonical (score_min, score_max) pair every detector
+        # uses, then invert (1 - x) so that higher = more anomalous, matching the
+        # rest of the stack.
+        scores_norm = 1.0 - self._scores_to_unit(
+            scores_train, self.score_min, self.score_max
         )
         self.threshold = float(np.percentile(scores_norm, self.threshold_percentile))
 
@@ -31,17 +46,16 @@ class HMMDetector:
 
     def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         if self.model is None:
-            raise RuntimeError("Llama fit() antes de predict()")
+            self._check_fitted("model")
 
-        X = np.asarray(X, dtype=float)
+        X = self._to_float(X)
         scores = np.array([self.model.score(X[i : i + 1]) for i in range(len(X))])
 
-        # Log-likelihood bajo = anomalía
-        scores_norm = (self.score_max - scores) / (
-            self.score_max - self.score_min + 1e-8
+        # Low log-likelihood = anomaly (inverted normalized score).
+        scores_norm = 1.0 - self._scores_to_unit(
+            scores, self.score_min, self.score_max
         )
-        scores_norm = np.clip(scores_norm, 0.0, 1.0)
 
-        anomalies = (scores_norm > self.threshold).astype(int)
+        anomalies = self._above_threshold(scores_norm, self.threshold)
 
         return anomalies, scores_norm

@@ -1,12 +1,15 @@
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
+from detectors.base import BaseDetector
+from detectors.constants import contamination_percentile
 
-class KNNDetector:
+
+class KNNDetector(BaseDetector):
     def __init__(self, n_neighbors: int = 5, contamination: float = 0.1):
-        """
-        Outlier = distancia a k-ésimo vecino más lejano en X_train es muy alta.
-        Muy simple, muy robusto, no asume forma de distribución.
+        """Outlier = distance to the k-th nearest training neighbor is very high.
+
+        Simple, robust, and makes no distributional assumption.
         """
         self.n_neighbors = n_neighbors
         self.contamination = contamination
@@ -16,7 +19,7 @@ class KNNDetector:
         self.score_max = None
 
     def fit(self, X: np.ndarray) -> "KNNDetector":
-        X = np.asarray(X, dtype=float)
+        X = self._to_float(X)
         self.model = NearestNeighbors(n_neighbors=self.n_neighbors + 1)
         self.model.fit(X)
 
@@ -25,22 +28,21 @@ class KNNDetector:
 
         self.score_min = float(scores_train.min())
         self.score_max = float(scores_train.max())
-        self.threshold = np.percentile(scores_train, 100 * (1 - self.contamination))
+        self.threshold = np.percentile(
+            scores_train, contamination_percentile(self.contamination)
+        )
 
         return self
 
     def predict(self, X: np.ndarray):
         if self.model is None:
-            raise RuntimeError("Llama fit() antes de predict()")
+            self._check_fitted("model")
 
-        X = np.asarray(X, dtype=float)
+        X = self._to_float(X)
         distances, _ = self.model.kneighbors(X)
         scores_raw = distances[:, -1]
 
-        anomalies = (scores_raw > self.threshold).astype(int)
-        scores = (scores_raw - self.score_min) / (
-            self.score_max - self.score_min + 1e-8
-        )
-        scores = np.clip(scores, 0.0, 1.0)
+        anomalies = self._above_threshold(scores_raw, self.threshold)
+        scores = self._scores_to_unit(scores_raw, self.score_min, self.score_max)
 
         return anomalies, scores
