@@ -26,19 +26,24 @@ from components import (  # noqa: E402
     breadcrumb,
     detector_card,
     family_header,
-    metric_row,
     read_param_values,
     section_title,
 )
-from mesh import score_mesh  # noqa: E402
+from mesh import contour_polylines, score_mesh  # noqa: E402
 from streamlit_config import DETECTOR_REGISTRY  # noqa: E402
 from theme import (  # noqa: E402
+    ANOMALY,
+    ANOMALY_SCALE,
     ANOMALY_SOFT,
     BG_CANVAS,
     BG_SURFACE,
     BORDER,
+    PRIMARY,
+    PRIMARY_MID,
     PRIMARY_SOFT,
     TEXT,
+    family_color,
+    score_scale_css,
 )
 
 from detectors.factory import build_detector  # noqa: E402
@@ -59,6 +64,17 @@ CATEGORY_CAPTIONS = {
     "Dimensionality": "Reconstruction error to the dominant linear subspace.",
 }
 
+# Covariance-ellipse levels for the Gaussian-family overlays: the concentric
+# rings ARE the covariance of the fitted Gaussian (variance + correlation),
+# one ring per standard deviation. Drawn rings and the corner legend share this
+# single definition so they can never drift apart.
+# Tuple: (n_std, trace_color, legend_color, label).
+ELLIPSE_LEVELS = [
+    (1, PRIMARY_SOFT, PRIMARY, "1σ"),
+    (2, "rgba(100,116,139,0.7)", "#94a3b8", "2σ"),
+    (3, ANOMALY_SOFT, ANOMALY, "3σ"),
+]
+
 
 def _ellipse_points(
     mean: np.ndarray, cov: np.ndarray, n_std: float, n_points: int = 100
@@ -74,11 +90,7 @@ def _ellipse_points(
 
 
 def _add_ellipse_traces(fig: go.Figure, mean: np.ndarray, cov: np.ndarray) -> None:
-    for n_std, color in [
-        (1, PRIMARY_SOFT),
-        (2, "rgba(100,116,139,0.7)"),
-        (3, ANOMALY_SOFT),
-    ]:
+    for n_std, color, text_color, label in ELLIPSE_LEVELS:
         ex, ey = _ellipse_points(mean, cov, n_std)
         fig.add_trace(
             go.Scatter(
@@ -90,10 +102,23 @@ def _add_ellipse_traces(fig: go.Figure, mean: np.ndarray, cov: np.ndarray) -> No
                 showlegend=False,
             )
         )
+        rightmost = int(np.argmax(ex))
+        fig.add_annotation(
+            x=ex[rightmost],
+            y=ey[rightmost],
+            text=label,
+            showarrow=False,
+            font={"size": 10, "color": text_color, "weight": "bold"},
+            xshift=10,
+            bgcolor="rgba(248, 250, 252, 0.85)",
+            bordercolor=text_color,
+            borderwidth=1,
+            borderpad=3,
+        )
 
 
 def _add_covariance_overlay(fig: go.Figure, detector: Any, family: str) -> None:
-    """Draw the 1/2/3-sigma ellipses of the covariance THE DETECTOR fits.
+    """Draw the 1/2/3-sigma ellipses of the covariance the detector fitted.
 
     Uses the fitted parameters stored on the detector itself (not a fresh refit),
     so the ellipses match the detector's real decision surface.
@@ -114,17 +139,23 @@ def _add_covariance_overlay(fig: go.Figure, detector: Any, family: str) -> None:
 def _add_knn_illustration(
     fig: go.Figure, X: np.ndarray, scores: np.ndarray, k: int
 ) -> None:
-    """Draw lines from the most anomalous point to the k neighbors used for its score."""
+    """Lines to the k neighbors of the top anomaly, weighted by distance."""
     target_idx = int(np.argmax(scores))
     nn = NearestNeighbors(n_neighbors=min(k + 1, len(X))).fit(X)
-    _, neighbor_idx = nn.kneighbors(X[target_idx].reshape(1, -1))
-    for idx in neighbor_idx[0][1:]:
+    dists, neighbor_idx = nn.kneighbors(X[target_idx].reshape(1, -1))
+    neighbor_ids = neighbor_idx[0][1:]
+    neighbor_dists = dists[0][1:]
+    max_d = float(neighbor_dists.max()) if neighbor_dists.size else 1.0
+
+    for idx, dist in zip(neighbor_ids, neighbor_dists, strict=True):
+        weight = 1.0 - 0.6 * (dist / max_d if max_d > 0 else 0.0)
         fig.add_trace(
             go.Scatter(
                 x=[X[target_idx, 0], X[idx, 0]],
                 y=[X[target_idx, 1], X[idx, 1]],
                 mode="lines",
-                line={"color": ANOMALY_SOFT, "width": 1.5},
+                line={"color": ANOMALY_SOFT, "width": 1 + weight * 2},
+                opacity=float(weight),
                 hoverinfo="skip",
                 showlegend=False,
             )
@@ -144,12 +175,26 @@ def _add_knn_illustration(
             showlegend=False,
         )
     )
+    fig.add_annotation(
+        x=X[target_idx, 0],
+        y=X[target_idx, 1],
+        text=f"top anomaly · {k} nearest neighbors",
+        showarrow=True,
+        arrowhead=0,
+        ax=0,
+        ay=-24,
+        font={"size": 9, "color": "rgba(255,255,255,0.7)"},
+        bgcolor="rgba(0,0,0,0.3)",
+        borderpad=3,
+    )
 
 
 def _add_lof_illustration(
-    fig: go.Figure, X: np.ndarray, k: int, sample_size: int = 12
+    fig: go.Figure, X: np.ndarray, k: int, sample_size: int | None = None
 ) -> None:
     """Circles of radius = distance to the k-th neighbor illustrate local density."""
+    if sample_size is None:
+        sample_size = max(8, min(20, len(X) // 15))
     rng = np.random.default_rng(42)
     sample_idx = rng.choice(len(X), size=min(sample_size, len(X)), replace=False)
     nn = NearestNeighbors(n_neighbors=min(k + 1, len(X))).fit(X)
@@ -162,11 +207,67 @@ def _add_lof_illustration(
                 x=X[idx, 0] + radius * np.cos(theta),
                 y=X[idx, 1] + radius * np.sin(theta),
                 mode="lines",
-                line={"color": PRIMARY_SOFT, "width": 1.5},
+                line={"color": PRIMARY_SOFT, "width": 1.2},
+                opacity=0.45,
                 hoverinfo="skip",
                 showlegend=False,
             )
         )
+    # Single didactic label (same light-background style as the covariance rings):
+    # anchored on the top of the largest circle, in a sparse region where it does
+    # not collide with data.
+    if sample_idx.size:
+        biggest = sample_idx[int(np.argmax(distances[sample_idx, -1]))]
+        radius = distances[biggest, -1]
+        fig.add_annotation(
+            x=X[biggest, 0],
+            y=X[biggest, 1] + radius,
+            yanchor="bottom",
+            text="radius = distance to<br>the k-th neighbor",
+            showarrow=False,
+            align="center",
+            font={"size": 9, "color": "#0f172a", "weight": "bold"},
+            bgcolor="rgba(248, 250, 252, 0.85)",
+            bordercolor=PRIMARY,
+            borderwidth=1,
+            borderpad=4,
+        )
+
+
+def _add_zscore_band(fig: go.Figure, detector: Any) -> None:
+    """Draw the axis-aligned threshold rectangle mu +/- threshold*sigma per feature.
+
+    Z-Score is univariate: each feature is judged independently, so its "normal"
+    region is an axis-parallel box, not a rotated ellipse. This rectangle makes
+    that explicit.
+    """
+    try:
+        mu, sigma, threshold = detector.mu, detector.sigma, detector.threshold
+        x0, x1 = mu[0] - threshold * sigma[0], mu[0] + threshold * sigma[0]
+        y0, y1 = mu[1] - threshold * sigma[1], mu[1] + threshold * sigma[1]
+        fig.add_trace(
+            go.Scatter(
+                x=[x0, x1, x1, x0, x0],
+                y=[y0, y0, y1, y1, y0],
+                mode="lines",
+                line={"color": "white", "width": 2.5, "dash": "dash"},
+                hoverinfo="skip",
+                showlegend=False,
+            )
+        )
+        fig.add_annotation(
+            x=x0,
+            y=y1,
+            text="±k·σ per axis",
+            showarrow=False,
+            xanchor="left",
+            yanchor="bottom",
+            font={"size": 9, "color": "white"},
+            bgcolor="rgba(0,0,0,0.3)",
+            borderpad=3,
+        )
+    except Exception:  # noqa: BLE001 - overlay is cosmetic; never break the chart
+        logger.warning("Could not draw Z-Score band overlay")
 
 
 def _build_figure(
@@ -177,7 +278,9 @@ def _build_figure(
     scores: np.ndarray,
     k_for_illustration: int,
 ) -> go.Figure:
-    family = DETECTOR_REGISTRY[detector_name].family
+    spec = DETECTOR_REGISTRY[detector_name]
+    family = spec.family
+    boundary_color = family_color(spec.category)
 
     x_margin = 0.1 * (X[:, 0].max() - X[:, 0].min() + 1e-6)
     y_margin = 0.1 * (X[:, 1].max() - X[:, 1].min() + 1e-6)
@@ -186,26 +289,59 @@ def _build_figure(
 
     fig = go.Figure()
 
-    xx, yy, zz = score_mesh(detector, x_range, y_range)
+    xx, yy, zz, threshold = score_mesh(detector, x_range, y_range)
+
     fig.add_trace(
         go.Contour(
             x=xx[0],
             y=yy[:, 0],
             z=zz,
-            colorscale="Inferno",
+            zmin=0,
+            zmax=1,
+            colorscale=ANOMALY_SCALE,
             showscale=False,
             opacity=0.6,
-            contours={"showlines": False},
+            contours={"coloring": "heatmap", "showlines": False},
             hoverinfo="skip",
         )
     )
-
+    # Decision boundary: the iso-line of the score field at the detector's split
+    # threshold. Extracted with marching squares and drawn as plain Scatter lines
+    # (a single-level Plotly contour isoline can silently not render), as a crisp
+    # three-layer "seam": dark outline separates it from bright zones, the family
+    # accent carries the identity, a white core keeps it visible on dark zones.
+    polylines = contour_polylines(zz, threshold, x_range, y_range)
+    if polylines:
+        for line_color, width in [
+            ("rgba(8, 12, 20, 0.85)", 5.0),
+            (boundary_color, 3.0),
+            ("rgba(255, 255, 255, 0.95)", 1.2),
+        ]:
+            bx: list[float | None] = []
+            by: list[float | None] = []
+            for pl in polylines:
+                bx.extend(pl[:, 0].tolist())
+                by.extend(pl[:, 1].tolist())
+                bx.append(None)
+                by.append(None)
+            fig.add_trace(
+                go.Scatter(
+                    x=bx,
+                    y=by,
+                    mode="lines",
+                    line={"color": line_color, "width": width},
+                    hoverinfo="skip",
+                    showlegend=False,
+                )
+            )
     if family in ("covariance_empirical", "covariance_robust", "covariance_elliptic"):
         _add_covariance_overlay(fig, detector, family)
     elif family == "knn":
         _add_knn_illustration(fig, X, scores, k_for_illustration)
     elif family == "lof":
         _add_lof_illustration(fig, X, k_for_illustration)
+    elif family == "zscore":
+        _add_zscore_band(fig, detector)
 
     normal_mask = y_pred == 0
     fig.add_trace(
@@ -215,8 +351,8 @@ def _build_figure(
             mode="markers",
             marker={
                 "size": 5,
-                "color": PRIMARY_SOFT,
-                "line": {"width": 0},
+                "color": PRIMARY_MID,
+                "line": {"width": 1, "color": "rgba(255,255,255,0.5)"},
             },
             hoverinfo="skip",
             showlegend=False,
@@ -224,19 +360,17 @@ def _build_figure(
     )
     anomaly_mask = y_pred == 1
     if anomaly_mask.sum() > 0:
+        # A single strong accent (not score-colored: the background field already
+        # encodes the score) with a white halo so anomalies pop on any tint.
         fig.add_trace(
             go.Scatter(
                 x=X[anomaly_mask, 0],
                 y=X[anomaly_mask, 1],
                 mode="markers",
                 marker={
-                    "size": 7,
-                    "color": scores[anomaly_mask],
-                    "colorscale": "Magenta",
-                    "showscale": False,
-                    "cmin": 0,
-                    "cmax": 1,
-                    "line": {"width": 0},
+                    "size": 8,
+                    "color": ANOMALY,
+                    "line": {"width": 1.2, "color": "rgba(255,255,255,0.9)"},
                 },
                 hoverinfo="skip",
                 showlegend=False,
@@ -247,23 +381,27 @@ def _build_figure(
         xaxis={
             "showgrid": False,
             "zeroline": False,
-            "visible": False,
+            "showticklabels": False,
+            "showline": True,
+            "linecolor": BORDER,
             "range": x_range,
         },
         yaxis={
             "showgrid": False,
             "zeroline": False,
-            "visible": False,
+            "showticklabels": False,
+            "showline": True,
+            "linecolor": BORDER,
             "range": y_range,
         },
         hovermode=False,
         showlegend=False,
-        margin={"l": 10, "r": 10, "t": 50, "b": 10},
+        margin={"l": 10, "r": 10, "t": 40, "b": 10},
     )
     fig.update_layout(
         title={
             "text": f"<b>{detector_name}</b>",
-            "font": {"size": 18, "color": TEXT},
+            "font": {"size": 16, "color": TEXT},
             "x": 0.5,
             "xanchor": "center",
         },
@@ -295,7 +433,7 @@ def _load_dataset(
     dataset_key: str, n_samples: int, contamination: float
 ) -> tuple[np.ndarray, np.ndarray]:
     """Deterministic dataset for the cache key; the same seed/args as the page."""
-    X, y_true, _ = SyntheticDatasetGenerator.generate(
+    X, y_true = SyntheticDatasetGenerator.generate(
         dataset_key,
         n_samples=n_samples,
         contamination=contamination,
@@ -362,7 +500,6 @@ def _render_detector_card(
         auroc=result["auroc"],
         params=widget_params,
         prefix=prefix,
-        show_params=True,
         values=params,
         chart_key=f"chart_{prefix}",
     )
@@ -393,16 +530,7 @@ def _render_family_group(
 
 def render_playground_view() -> None:
     breadcrumb([("Data", True), ("Features", True), ("Detect", True)])
-    st.markdown(
-        """
-        ## 2D Playground: How Anomaly Detectors Work
-
-        Pick a dataset geometry and observe how each algorithm draws its own decision
-        boundary. The blue background is the anomaly score the detector itself assigns
-        to every region of the space — the real output of `detector.predict()` evaluated
-        on a mesh, not an approximation.
-        """
-    )
+    st.markdown("## 2D Playground: How Anomaly Detectors Work")
 
     col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
@@ -422,36 +550,23 @@ def render_playground_view() -> None:
         )
 
     dataset_key_internal = SyntheticDatasetGenerator.DATASETS[dataset_key]
-    X, y_true, dataset_description = SyntheticDatasetGenerator.generate(
-        dataset_key_internal,
-        n_samples=n_samples,
-        contamination=contamination_global,
-        random_state=42,
-    )
-    st.markdown(f"**{dataset_description}**")
 
     st.markdown("---")
-    with st.expander("How to read these charts", expanded=True):
-        st.markdown(
-            """
-            **Blue background** = the detector's real anomaly score, evaluated over the whole space.
-            **Blue points** = predicted normal - **Red points** = predicted anomaly, intensity = confidence.
-            **Dotted ellipses** (Mahalanobis / Elliptic Envelope / Robust Covariance) = 1σ, 2σ and 3σ
-            contours of the estimated covariance; points outside the outer ellipse are the most atypical.
-            **Gold star + red lines** (KNN) = the most anomalous point and the k neighbors used to score it.
-            **Blue circles** (LOF) = radius to the k-th neighbor for a sample of points, showing how the
-            local density varies across the dataset.
-
-            **AUROC** = Area Under the ROC Curve - 1.0 perfect separation - 0.5 random - above 0.7 is a
-            strong detector for this geometry.
-
-            Move the sliders under each chart: the detector is retrained instantly with the new parameter.
-            **Anomalies %** (top) is shared by all detectors — it sets both the anomalies injected into
-            the dataset and each detector's assumed contamination ratio.
-            """
-        )
 
     section_title("All Detectors at a Glance")
+    st.caption(
+        "The line with the dark edge is the **decision boundary** — the detector's "
+        "split between normal and anomalous regions. The background shades the "
+        "anomaly score of every region."
+    )
+    st.markdown(
+        "<div class='score-legend'>"
+        "<span><b>Background</b> = anomaly score</span>"
+        f"<span class='score-bar' style='background:{score_scale_css()};'></span>"
+        "<span class='low-high'><span>normal</span><span>→</span><span>anomalous</span></span>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
     categories: list[str] = []
     for name in TEACHING_DETECTORS:
         category = DETECTOR_REGISTRY[name].category
@@ -486,14 +601,3 @@ def render_playground_view() -> None:
     _, mid, _ = st.columns([0.5, 2, 0.5])
     with mid:
         st.dataframe(ranking_data, width="stretch", hide_index=True)
-
-    st.markdown("---")
-    with st.expander("Dataset Information"):
-        metric_row(
-            [
-                ("Total Points", f"{len(X):,}"),
-                ("Normal", f"{(y_true == 0).sum():,}"),
-                ("Anomalies", f"{(y_true == 1).sum():,}"),
-                ("Dimensions", "2D"),
-            ]
-        )

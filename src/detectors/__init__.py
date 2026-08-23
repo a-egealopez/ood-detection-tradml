@@ -1,9 +1,9 @@
 from .ensemble import EnsembleDetector
 from .sequential.hawkes_detector import HawkesDetector
 from .sequential.hmm_detector import HMMDetector
+from .sequential.markov_sequence_detector import MarkovSequenceDetector
 from .vectorial import (
     EllipticEnvelopeDetector,
-    ExtendedIForestDetector,
     IsolationForestDetector,
     KNNDetector,
     LOFDetector,
@@ -17,13 +17,13 @@ from .vectorial import (
 __all__ = [
     "EllipticEnvelopeDetector",
     "EnsembleDetector",
-    "ExtendedIForestDetector",
     "HMMDetector",
     "HawkesDetector",
     "IsolationForestDetector",
     "KNNDetector",
     "LOFDetector",
     "MahalanobisDetector",
+    "MarkovSequenceDetector",
     "OCSVMDetector",
     "PCAReconstructionDetector",
     "RobustCovarianceDetector",

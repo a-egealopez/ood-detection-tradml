@@ -1,9 +1,9 @@
 """Curated formal references: papers, surveys, library manuals and monographs.
 
 Single source for the "Learn more" links shown on the detector cards (2D Playground)
-and for the per-concept references + study guide in the Documentation tab. Every
-resource is a primary paper, a peer-reviewed survey, an official library manual or
-a monograph — no blog posts or wiki pages. Every URL was checked before being added.
+and the feature-extraction methods (Features step). Every resource is a primary
+paper, a peer-reviewed survey, an official library manual or a monograph - no blog
+posts or wiki pages. Every URL was checked before being added.
 """
 
 from dataclasses import dataclass
@@ -14,11 +14,11 @@ from dataclasses import dataclass
 # ----------------------------------------------------------------------------
 @dataclass(frozen=True)
 class Resource:
-    """One curated reference for a detector or a concept.
+    """One curated reference for a detector or a feature-extraction method.
 
     ``method`` is the key that links the resource back to a detector name (the
-    ``DETECTOR_REGISTRY`` display names) or to a concept title (the Documentation
-    tab). ``kind`` selects the badge shown in the UI.
+    ``DETECTOR_REGISTRY`` display names) or to a feature-method key (the Features
+    step). ``kind`` selects the badge shown in the UI.
     """
 
     method: str
@@ -26,16 +26,6 @@ class Resource:
     kind: str  # paper | survey | manual | tool
     url: str
     note: str  # short didactic "why read this"
-
-
-@dataclass(frozen=True)
-class StudyStep:
-    """One stage of the didactic study path."""
-
-    stage: str
-    title: str
-    goal: str  # what the learner should be able to do after this stage
-    topics: tuple[str, ...] = ()  # RESOURCES keys to link from this stage
 
 
 # Badge shown next to each resource kind.
@@ -46,13 +36,17 @@ KIND_LABELS = {
     "tool": "🧰 Library",
 }
 
-# Concept titles that map onto a detector key (same references, two entry points).
+# UI names that map onto a resource key (same references, two entry points).
 ALIASES = {
     "Hidden Markov Model (HMM)": "HMM",
     "Hawkes self-exciting process": "Hawkes",
     "OC-SVM (RBF)": "OC-SVM",
     "OC-SVM (Linear)": "OC-SVM",
     "OC-SVM (Poly)": "OC-SVM",
+    "Window Aggregation": "Window aggregation features",
+    "Inter-Event Interval (IEI)": "Inter-event interval (IEI), CV and Fano factor",
+    "N-gram Transition (Markov)": "N-gram / Markov transition entropy",
+    "Next-Event Prediction (Markov)": "Next-event prediction (Markov)",
 }
 
 
@@ -263,65 +257,11 @@ RESOURCES: tuple[Resource, ...] = (
         title="tick",
         kind="tool",
         url="https://x-datainitiative.github.io/tick/",
-        note="The point-process library used here; simulates and fits Hawkes kernels (heavy native build).",
+        note="The reference point-process library; the Hawkes detector here implements the "
+        "exponential-kernel intensity recursion directly in numpy (Ogata 1988), so tick "
+        "is not required.",
     ),
-    # --- Concepts (Documentation tab) --------------------------------------
-    Resource(
-        method="Anomaly types (point / contextual / collective)",
-        title="Anomaly Detection: A Survey",
-        kind="survey",
-        url="https://dl.acm.org/doi/10.1145/1541880.1541882",
-        note="Chandola, Banerjee & Kumar (2009): the reference taxonomy and the assumptions behind each detector family.",
-    ),
-    Resource(
-        method="Anomaly types (point / contextual / collective)",
-        title="Comparing anomaly detection algorithms on toy datasets (scikit-learn)",
-        kind="manual",
-        url="https://scikit-learn.org/stable/auto_examples/miscellaneous/plot_anomaly_comparison.html",
-        note="Official scikit-learn example: Robust Covariance, OC-SVM, Isolation Forest and LOF side-by-side on the same 2-D geometries.",
-    ),
-    Resource(
-        method="Anomaly types (point / contextual / collective)",
-        title="Novelty and Outlier Detection (scikit-learn)",
-        kind="manual",
-        url="https://scikit-learn.org/stable/modules/outlier_detection.html",
-        note="Hands-on overview of the classical detectors this app wraps.",
-    ),
-    Resource(
-        method="Anomaly types (point / contextual / collective)",
-        title="PyOD: a Python toolbox for scalable outlier detection",
-        kind="paper",
-        url="https://jmlr.org/papers/volume20/19-011/19-011.pdf",
-        note="Zhao, Nasrullah & Li (2019), JMLR: the library that covers almost every classical detector with one API.",
-    ),
-    Resource(
-        method="Anomaly types (point / contextual / collective)",
-        title="PyOD",
-        kind="tool",
-        url="https://pyod.readthedocs.io/",
-        note="PyOD: dozens of classical detectors with one API — a great catalogue to compare families.",
-    ),
-    Resource(
-        method="Ensemble detectors",
-        title="Theoretical Foundations and Algorithms for Outlier Ensembles",
-        kind="paper",
-        url="https://charuaggarwal.net/theory.pdf",
-        note="Aggarwal & Sathe (2015), ACM SIGKDD Explorations 17(1): why combining detectors works and how to combine their scores.",
-    ),
-    Resource(
-        method="Ensemble detectors",
-        title="Outlier Ensembles: An Introduction (Springer)",
-        kind="manual",
-        url="https://link.springer.com/book/10.1007/978-3-319-54765-7",
-        note="Aggarwal & Sathe (2017): the book-length treatment of ensemble theory, base detectors and combination functions.",
-    ),
-    Resource(
-        method="Ensemble detectors",
-        title="PyOD model combination",
-        kind="tool",
-        url="https://pyod.readthedocs.io/",
-        note="Practical score-combination recipes (average / maximization / AOM) used in real ensembles.",
-    ),
+    # --- Feature-extraction methods (Features step) -------------------------
     Resource(
         method="Window aggregation features",
         title="Human activity recognition in smart homes with binary sensors: a survey",
@@ -351,149 +291,52 @@ RESOURCES: tuple[Resource, ...] = (
         note="Shannon's entropy and why n-grams / Markov chains quantify predictability — the theory behind this feature.",
     ),
     Resource(
-        method="AUROC",
-        title="An Introduction to ROC Analysis (Fawcett, 2006)",
+        method="Next-event prediction (Markov)",
+        title="DeepLog: Anomaly Detection and Diagnosis from System Logs through Deep Learning",
         kind="paper",
-        url="https://math.ucdavis.edu/~saito/data/roc/fawcett-roc.pdf",
-        note="Fawcett (2006), Pattern Recognition Letters 27(8): why ROC curves are the right tool when class balance is unknown — the metric behind the AUROC pill.",
+        url="https://dl.acm.org/doi/10.1145/3133956.3134015",
+        note="Du, Li, Zheng & Srikumar (2017), ACM CCS (~3000 citations): the seminal 'predict the next event and flag deviations' approach. Its paper explicitly frames the n-gram / Markov model as the classic baseline, which is exactly this extractor.",
     ),
     Resource(
-        method="Synthetic anomaly injection",
-        title="Anomaly Detection: A Survey",
-        kind="survey",
-        url="https://dl.acm.org/doi/10.1145/1541880.1541882",
-        note="Why evaluation without labels relies on proxied / synthetic anomalies.",
-    ),
-    Resource(
-        method="Synthetic anomaly injection",
-        title="Synthetic Anomaly Test Sets from CASAS ARUBA (Zenodo)",
-        kind="tool",
-        url="https://zenodo.org/records/15800764",
-        note="A research artifact that injects synthetic anomalies into CASAS Aruba — exactly the strategy used here.",
-    ),
-    # --- CASAS (study guide) ------------------------------------------------
-    Resource(
-        method="CASAS",
-        title="Learning Setting-Generalized Activity Models for Smart Spaces",
+        method="Next-event prediction (Markov)",
+        title="Anomaly Detection for Discrete Sequences: A Survey",
         kind="paper",
-        url="https://eecs.wsu.edu/~cook/pubs/computer12.pdf",
-        note="How CASAS homes are instrumented and why the activity model matters — context for the whole CASAS track.",
+        url="https://ieeexplore.ieee.org/document/6192365",
+        note="Chandola, Mithal & Kumar (2012), IEEE TKDE 24(5): formal taxonomy of sequence anomalies; 'predictive models' are a canonical family — build a model of normal sequence behavior and flag deviations.",
+    ),
+    # --- Ensemble step -------------------------------------------------------
+    Resource(
+        method="Ensemble detectors",
+        title="Theoretical Foundations and Algorithms for Outlier Ensembles",
+        kind="paper",
+        url="https://charuaggarwal.net/theory.pdf",
+        note="Aggarwal & Sathe (2015), ACM SIGKDD Explorations 17(1): why combining detectors works and how to combine their scores.",
     ),
     Resource(
-        method="CASAS",
-        title="CASAS Datasets",
-        kind="tool",
-        url="https://casas.wsu.edu/datasets/",
-        note="The public dataset page; aruba, cairo, milan and tulum are used here.",
+        method="Ensemble detectors",
+        title="Outlier Ensembles: An Introduction (Springer)",
+        kind="manual",
+        url="https://link.springer.com/book/10.1007/978-3-319-54765-7",
+        note="Aggarwal & Sathe (2017): the book-length treatment of ensemble theory, base detectors and combination functions.",
     ),
     Resource(
-        method="CASAS",
-        title="CASAS smart-home dataset (aruba, cairo, milan, tulum) on Zenodo",
+        method="Ensemble detectors",
+        title="On the Combination of Outlier Detection Algorithms",
+        kind="paper",
+        url="https://charuaggarwal.net/combine.pdf",
+        note="Aggarwal (2013): average/maximization/AOM combination functions — the recipes behind the soft and hard voting here.",
+    ),
+    Resource(
+        method="Ensemble detectors",
+        title="PyOD model combination",
         kind="tool",
-        url="https://zenodo.org/records/17180309",
-        note="A maintained mirror with floorplans and sensor maps for the four houses.",
+        url="https://pyod.readthedocs.io/",
+        note="Practical score-combination recipes (average / maximization / AOM) used in real ensembles.",
     ),
 )
 
 
 def resources_for(method: str) -> tuple[Resource, ...]:
-    """Curated references for a detector name or concept (alias-resolved)."""
+    """Curated references for a detector name or feature method (alias-resolved)."""
     key = ALIASES.get(method, method)
     return tuple(res for res in RESOURCES if res.method == key)
-
-
-# ----------------------------------------------------------------------------
-# Study guide: a didactic path through the whole stack
-# ----------------------------------------------------------------------------
-STUDY_GUIDE: tuple[StudyStep, ...] = (
-    StudyStep(
-        stage="1",
-        title="Univariate statistics: the z-score",
-        goal="Read a z-score, know mean / std, and see why naive distance-from-the-mean breaks.",
-        topics=("Z-Score",),
-    ),
-    StudyStep(
-        stage="2",
-        title="The anomaly taxonomy",
-        goal="Classify anomalies as point / contextual / collective and map each to a detector family.",
-        topics=("Anomaly types (point / contextual / collective)",),
-    ),
-    StudyStep(
-        stage="3",
-        title="Distance and covariance in multivariate space",
-        goal="Understand Mahalanobis distance and the effect of an ill-estimated covariance.",
-        topics=("Mahalanobis", "Elliptic Envelope", "Robust Covariance"),
-    ),
-    StudyStep(
-        stage="4",
-        title="Local density and neighbours",
-        goal="Distinguish local from global outliers; know when KNN / LOF beat global methods.",
-        topics=("KNN", "LOF"),
-    ),
-    StudyStep(
-        stage="5",
-        title="Non-parametric boundaries",
-        goal="Wrap the normal region with a boundary instead of fitting a density.",
-        topics=("OC-SVM",),
-    ),
-    StudyStep(
-        stage="6",
-        title="Low-dimensional structure",
-        goal="Use reconstruction error to the dominant subspace as an anomaly score.",
-        topics=("PCA Reconstruction",),
-    ),
-    StudyStep(
-        stage="7",
-        title="Isolation instead of distance",
-        goal="Random partitions and path length: the idea that changed the field.",
-        topics=("Isolation Forest", "Extended IForest"),
-    ),
-    StudyStep(
-        stage="8",
-        title="Event streams to daily features",
-        goal="Aggregate raw sensor events into interpretable per-day features.",
-        topics=("Window aggregation features",),
-    ),
-    StudyStep(
-        stage="9",
-        title="Point-process rhythm: IEI, CV and Fano factor",
-        goal="Tell regular from bursty activity using the times between events.",
-        topics=("Inter-event interval (IEI), CV and Fano factor",),
-    ),
-    StudyStep(
-        stage="10",
-        title="Sequence predictability: n-grams and entropy",
-        goal="Quantify how predictable a sensor sequence is with Markov transitions.",
-        topics=("N-gram / Markov transition entropy",),
-    ),
-    StudyStep(
-        stage="11",
-        title="Hidden regimes: the HMM",
-        goal="Model latent states and score regime transitions across days.",
-        topics=("HMM",),
-    ),
-    StudyStep(
-        stage="12",
-        title="Self-exciting events: the Hawkes process",
-        goal="Model bursts: past events raising the rate of future ones.",
-        topics=("Hawkes",),
-    ),
-    StudyStep(
-        stage="13",
-        title="Ensembles: combine, don't pick",
-        goal="Understand why combining normalized detector scores beats trusting a single method.",
-        topics=("Ensemble detectors",),
-    ),
-    StudyStep(
-        stage="14",
-        title="Evaluation without labels",
-        goal="Read ROC / AUROC and understand synthetic anomaly injection as a proxy.",
-        topics=("AUROC", "Synthetic anomaly injection"),
-    ),
-    StudyStep(
-        stage="15",
-        title="Applied: CASAS smart homes",
-        goal="Put every piece together on real smart-home event streams.",
-        topics=("CASAS", "Window aggregation features"),
-    ),
-)

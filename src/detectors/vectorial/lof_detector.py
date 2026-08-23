@@ -1,8 +1,9 @@
 import numpy as np
-from pyod.models.lof import LOF
+
+from detectors.base import BaseDetector
 
 
-class LOFDetector:
+class LOFDetector(BaseDetector):
     def __init__(self, n_neighbors: int = 20, contamination: float = 0.05):
         self.n_neighbors = n_neighbors
         self.contamination = contamination
@@ -11,7 +12,11 @@ class LOFDetector:
         self.score_max = None
 
     def fit(self, X: np.ndarray) -> "LOFDetector":
-        X = np.asarray(X, dtype=float)
+        # pyod is imported lazily so the core detector package can be imported
+        # without it (pyod is an optional dependency; only LOF uses it here).
+        from pyod.models.lof import LOF
+
+        X = self._to_float(X)
         self.model = LOF(n_neighbors=self.n_neighbors, contamination=self.contamination)
         self.model.fit(X)
 
@@ -23,15 +28,12 @@ class LOFDetector:
 
     def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         if self.model is None:
-            raise RuntimeError("Llama fit() antes de predict()")
+            self._check_fitted("model")
 
-        X = np.asarray(X, dtype=float)
+        X = self._to_float(X)
         scores_raw = self.model.decision_function(X)
         anomalies = self.model.predict(X).astype(int)
 
-        scores = (scores_raw - self.score_min) / (
-            self.score_max - self.score_min + 1e-8
-        )
-        scores = np.clip(scores, 0.0, 1.0)
+        scores = self._scores_to_unit(scores_raw, self.score_min, self.score_max)
 
         return anomalies, scores

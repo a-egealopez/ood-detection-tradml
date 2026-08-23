@@ -1,66 +1,67 @@
 import numpy as np
 from sklearn.covariance import MinCovDet
 
+from detectors.base import BaseDetector
+from detectors.constants import (
+    DEFAULT_RANDOM_STATE,
+    contamination_percentile,
+)
+from detectors.vectorial.classical_gaussian import ClassicalGaussian, is_mcd_safe
 
-class RobustCovarianceDetector:
+
+class RobustCovarianceDetector(BaseDetector):
     def __init__(
         self, contamination: float = 0.1, support_fraction: float | None = None
     ):
-        """
-        Minimum Covariance Determinant (MCD): estima media y cov robustas.
-        Mejor que Mahalanobis clásico si hay outliers en fit.
+        """Minimum Covariance Determinant (MCD): robust mean/covariance estimate.
+
+        More resistant than classical Mahalanobis when outliers are present in the
+        training set.
         """
         self.contamination = contamination
         self.support_fraction = support_fraction
         self.model = None
-        self.mean = None
-        self.cov = None
-        self.cov_inv = None
-        self.threshold = None
         self.score_min = None
         self.score_max = None
 
     def fit(self, X: np.ndarray) -> "RobustCovarianceDetector":
-        X = np.asarray(X, dtype=float)
+        X = self._to_float(X)
 
-        # Corregido: MinCovDet no acepta 'contamination' en su constructor
-        self.model = MinCovDet(support_fraction=self.support_fraction, random_state=42)
-        self.model.fit(X)
+        if is_mcd_safe(X):
+            self.model = MinCovDet(
+                support_fraction=self.support_fraction,
+                random_state=DEFAULT_RANDOM_STATE,
+            )
+            self.model.fit(X)
+        else:
+            # Degenerate input (too few samples / constant columns): fall back to a
+            # classical Gaussian fit instead of crashing on a singular covariance.
+            self.model = ClassicalGaussian(contamination=self.contamination)
+            self.model.fit(X)
 
-        self.mean = self.model.location_
-        self.cov = self.model.covariance_
-        self.cov_inv = self.model.precision_  # Usa la precisión calculada por sklearn
-
-        # Corregido: El método correcto es .mahalanobis(X)
         scores_train = self.model.mahalanobis(X)
         self.score_min = float(scores_train.min())
         self.score_max = float(scores_train.max())
 
-        # El percentil de contaminación se calcula sobre la distribución de las distancias
+        # Contamination percentile over the distance distribution sets the threshold.
         self.threshold = float(
-            np.percentile(scores_train, 100 * (1 - self.contamination))
+            np.percentile(
+                scores_train, contamination_percentile(self.contamination)
+            )
         )
 
         return self
 
     def predict(self, X: np.ndarray):
         if self.model is None:
-            raise RuntimeError("Llama fit() antes de predict()")
+            self._check_fitted("model")
 
-        X = np.asarray(X, dtype=float)
+        X = self._to_float(X)
 
-        # Corregido: .mahalanobis(X)
         scores_raw = self.model.mahalanobis(X)
 
-        anomalies = (scores_raw > self.threshold).astype(int)
+        anomalies = self._above_threshold(scores_raw, self.threshold)
 
-        # Normalización min-max segura en el rango [0.0, 1.0]
-        denom = self.score_max - self.score_min
-        if denom == 0:
-            scores = np.zeros_like(scores_raw)
-        else:
-            scores = (scores_raw - self.score_min) / (denom + 1e-8)
-
-        scores = np.clip(scores, 0.0, 1.0)
+        scores = self._scores_to_unit(scores_raw, self.score_min, self.score_max)
 
         return anomalies, scores

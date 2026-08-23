@@ -2,17 +2,7 @@ import numpy as np
 import pandas as pd
 from typing import ClassVar
 
-EPSILON = 1e-10
-
-
-def _calculate_entropy(counts: np.ndarray) -> float:
-    counts = np.asarray(counts, dtype=float)
-    total = counts.sum()
-    if total == 0:
-        return 0.0
-    probs = counts / total
-    probs = probs[probs > 0]
-    return float(-np.sum(probs * np.log(probs + EPSILON)))
+from features.common import daily_aggregates, extract_by_date
 
 
 class TemporalFeatureExtractor:
@@ -28,97 +18,72 @@ class TemporalFeatureExtractor:
         "entropy_sensor",
     ]
 
-    def __init__(self, window_size: int = 20, overlap: float = 0.5):
-        self.window_size = window_size
-        self.overlap = overlap
+    # Subset of the daily features that are true event counts, in the same order
+    # as FEATURE_NAMES. These are the only columns the Hawkes detector can
+    # interpret: its Poisson intensity model is only valid for non-negative
+    # integer counts (n_events, n_sensors, activity_hours). Continuous features
+    # (gaps, entropy, night-activity fraction, ...) must never reach it.
+    COUNT_FEATURE_NAMES: ClassVar[list[str]] = [
+        "n_events",
+        "n_sensors",
+        "activity_hours",
+    ]
 
-    def extract(self, df: pd.DataFrame, group_by: str = "date"):
+    # Maps this extractor's feature names (the order above) to the keys
+    # returned by the shared daily-aggregation helper.
+    _ORDER: ClassVar[list[str]] = [
+        "n_events",
+        "n_sensors",
+        "activity_hours",
+        "avg_gap_minutes",
+        "peak_hour",
+        "night_activity",
+        "event_frequency_std",
+        "entropy_hourly",
+        "entropy_sensor",
+    ]
+
+    @classmethod
+    def count_columns(cls, X) -> np.ndarray:
+        """Slice the daily matrix down to the count features (raw, unscaled).
+
+        Column indices are derived from ``COUNT_FEATURE_NAMES`` so the two lists
+        can never drift apart. Returns the columns a Poisson/Hawkes model can
+        legitimately consume.
+        """
+        indices = [cls.FEATURE_NAMES.index(name) for name in cls.COUNT_FEATURE_NAMES]
+        return np.asarray(X, dtype=float)[:, indices]
+
+    @classmethod
+    def hourly_counts(cls, df) -> np.ndarray:
+        """Per-day 24-dimensional hourly event counts (raw, unscaled).
+
+        Row order matches ``extract(df)`` (both group by date the same way). The
+        Hawkes detector consumes this view instead of the 3 aggregate counts:
+        its per-hour intensity model is sensitive to *when* during the day events
+        happen (contextual anomalies) while remaining blind to intra-day order
+        (collective anomalies), which is exactly the separation we want.
+        """
         df = df.copy()
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["date"] = df["timestamp"].dt.date
         df["hour"] = df["timestamp"].dt.hour
+        rows = [
+            group.groupby("hour").size().reindex(range(24), fill_value=0).values
+            for _, group in df.groupby("date")
+        ]
+        return np.asarray(rows, dtype=float)
 
-        features_list = []
-        dates_list = []
-
-        for date, group in df.groupby("date"):
-            features_list.append(self._features_for_group(group))
-            dates_list.append(date)
-
-        X = np.array(features_list)
-        dates = np.array(dates_list)
-        return X, dates
+    def extract(self, df: pd.DataFrame):
+        return extract_by_date(df, self._features_for_group)
 
     def _features_for_group(self, group: pd.DataFrame) -> list:
-        n_events = len(group)
-
-        if n_events == 0:
-            return [0.0] * len(self.FEATURE_NAMES)
-
-        n_sensors = group["sensor_id"].nunique()
-        hours_active = group["hour"].nunique()
-
-        ts_sorted = group["timestamp"].sort_values()
-        if n_events > 1:
-            gaps = ts_sorted.diff().dropna().dt.total_seconds() / 60.0
-            avg_gap = float(gaps.mean())
-        else:
-            avg_gap = 0.0
-
-        hour_mode = group["hour"].mode()
-        peak_hour = int(hour_mode.iloc[0]) if len(hour_mode) > 0 else 12
-
-        night_mask = (group["hour"] < 8) | (group["hour"] >= 22)
-        night_activity = float(night_mask.sum()) / n_events
-
-        events_per_sensor = group.groupby("sensor_id").size()
-        event_frequency_std = float(events_per_sensor.std()) if n_sensors > 1 else 0.0
-
-        hourly_counts = (
-            group.groupby("hour").size().reindex(range(24), fill_value=0).values
+        aggregates = daily_aggregates(
+            group,
+            include_peak_hour=True,
+            include_frequency_std=True,
         )
-        entropy_hourly = _calculate_entropy(hourly_counts)
-        entropy_sensor = _calculate_entropy(events_per_sensor.values)
-
-        return [
-            n_events,
-            n_sensors,
-            hours_active,
-            avg_gap,
-            peak_hour,
-            night_activity,
-            event_frequency_std,
-            entropy_hourly,
-            entropy_sensor,
-        ]
-
-    def rolling_features(self, df: pd.DataFrame, window_size: int | None = None):
-        window_size = window_size or self.window_size
-
-        df = df.copy()
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-        df["date"] = df["timestamp"].dt.date
-
-        unique_dates = sorted(df["date"].unique())
-        if len(unique_dates) < window_size:
-            raise ValueError(
-                f"Se necesitan al menos {window_size} días distintos, "
-                f"pero solo hay {len(unique_dates)}"
-            )
-
-        features_list = []
-        window_end_dates = []
-
-        for i in range(len(unique_dates) - window_size + 1):
-            window_dates = unique_dates[i : i + window_size]
-            window_df = df[df["date"].isin(window_dates)].copy()
-            window_df["hour"] = window_df["timestamp"].dt.hour
-
-            features_list.append(self._features_for_group(window_df))
-            window_end_dates.append(window_dates[-1])
-
-        X = np.array(features_list)
-        return X, np.array(window_end_dates)
+        return [aggregates[key] for key in self._ORDER]
 
 
 if __name__ == "__main__":

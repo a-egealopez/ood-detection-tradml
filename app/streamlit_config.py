@@ -11,8 +11,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from detectors.factory import DETECTOR_FACTORY
-
 
 @dataclass(frozen=True)
 class ParamSpec:
@@ -25,7 +23,7 @@ class ParamSpec:
     label: str
     min: float
     max: float
-    default: float
+    default: float | str
     step: float
     kwarg: str  # keyword passed to the detector constructor
     options: tuple[str, ...] = ()  # non-empty -> render a selectbox instead of a slider
@@ -38,13 +36,9 @@ class DetectorSpec:
     name: str
     description: str
     category: str
-    family: str = "none"  # teaching-track overlay: iforest / covariance_* / knn / lof / boundary_only / none
+    family: str = "none"  # teaching-track overlay: iforest / covariance_* / knn / lof / ocsvm / zscore / pca / none
     default: bool = False
     params: tuple[ParamSpec, ...] = ()
-
-    @property
-    def detector_cls(self) -> type:
-        return DETECTOR_FACTORY[self.name]
 
 
 # ============================================================================
@@ -133,7 +127,7 @@ DETECTOR_REGISTRY: dict[str, DetectorSpec] = {
         name="OC-SVM (RBF)",
         description="Gaussian-kernel boundary that wraps the normal region smoothly.",
         category="One-Class SVM",
-        family="boundary_only",
+        family="ocsvm",
         params=(
             ParamSpec("Nu", 0.01, 0.30, 0.05, 0.01, "nu"),
             ParamSpec(
@@ -151,14 +145,14 @@ DETECTOR_REGISTRY: dict[str, DetectorSpec] = {
         name="OC-SVM (Linear)",
         description="Hyperplane boundary; fast and interpretable on separable data.",
         category="One-Class SVM",
-        family="boundary_only",
+        family="ocsvm",
         params=(ParamSpec("Nu", 0.01, 0.30, 0.05, 0.01, "nu"),),
     ),
     "OC-SVM (Poly)": DetectorSpec(
         name="OC-SVM (Poly)",
         description="Polynomial-kernel boundary; flexible non-linear shapes.",
         category="One-Class SVM",
-        family="boundary_only",
+        family="ocsvm",
         params=(
             ParamSpec("Nu", 0.01, 0.30, 0.05, 0.01, "nu"),
             ParamSpec(
@@ -186,14 +180,14 @@ DETECTOR_REGISTRY: dict[str, DetectorSpec] = {
         name="Z-Score",
         description="Per-feature standard-deviation score; flags points far from the training mean.",
         category="Univariate",
-        family="boundary_only",
+        family="zscore",
         params=(ParamSpec("Threshold (std)", 1.0, 5.0, 3.0, 0.1, "threshold"),),
     ),
     "PCA Reconstruction": DetectorSpec(
         name="PCA Reconstruction",
         description="Reconstruction error to the dominant linear subspace.",
         category="Dimensionality",
-        family="boundary_only",
+        family="pca",
         params=(
             ParamSpec("Components", 1, 20, 5, 1, "n_components"),
             ParamSpec("Threshold percentile", 50, 99, 95, 1, "threshold_percentile"),
@@ -211,6 +205,20 @@ DETECTOR_REGISTRY: dict[str, DetectorSpec] = {
         category="Sequential",
         params=(ParamSpec("Decay", 0.1, 1.0, 0.5, 0.1, "decay"),),
     ),
+    "Markov Sequence": DetectorSpec(
+        name="Markov Sequence",
+        description=(
+            "First-order Markov transition likelihood: scores each day by how "
+            "unlikely its sensor transitions are under normal behavior "
+            "(DeepLog-style next-event model). Catches order/collective anomalies."
+        ),
+        category="Sequential",
+        params=(
+            ParamSpec(
+                "Threshold percentile", 80, 99, 90, 1, "threshold_percentile"
+            ),
+        ),
+    ),
 }
 
 # Display order = insertion order of the registry.
@@ -219,21 +227,6 @@ DETECTOR_NAMES: list[str] = list(DETECTOR_REGISTRY.keys())
 DETECTOR_DEFAULTS_LIST: list[str] = [
     name for name, spec in DETECTOR_REGISTRY.items() if spec.default
 ]
-
-# Guided-mode preset: one detector per major family (density, covariance, local
-# density, sequential). Advanced mode lets the user pick any of the 12.
-SIMPLE_MODE_DETECTORS: list[str] = [
-    "Isolation Forest",
-    "Mahalanobis",
-    "LOF",
-    "HMM",
-]
-
-SIMPLE_MODE_EXPLANATION = (
-    "One detector per family: **Isolation Forest** (density), **Mahalanobis** "
-    "(covariance), **LOF** (local density) and **HMM** (temporal patterns). "
-    "Defaults are fine — switch to *Advanced* to tune everything."
-)
 
 DETECTOR_CATEGORIES: dict[str, list[str]] = {}
 for spec in DETECTOR_REGISTRY.values():
@@ -246,14 +239,4 @@ for spec in DETECTOR_REGISTRY.values():
 ENSEMBLE_DEFAULTS = {
     "mode": "soft",
     "threshold_percentile": 90,
-    "weighting_scheme": "Uniform",
-}
-
-TRAINING_DEFAULTS = {
-    "train_split": 0.7,
-}
-
-SYNTHETIC_EVALUATION_DEFAULTS = {
-    "contamination": 0.15,
-    "magnitude": 6.0,
 }

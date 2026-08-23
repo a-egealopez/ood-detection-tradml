@@ -1,8 +1,11 @@
 import numpy as np
 from sklearn.svm import OneClassSVM
 
+from detectors.base import BaseDetector
+from detectors.constants import ANOMALY_LABEL
 
-class OCSVMDetector:
+
+class OCSVMDetector(BaseDetector):
     def __init__(self, nu: float = 0.05, kernel: str = "rbf", gamma: str = "auto"):
         self.nu = nu
         self.kernel = kernel
@@ -12,7 +15,7 @@ class OCSVMDetector:
         self.score_max = None
 
     def fit(self, X: np.ndarray) -> "OCSVMDetector":
-        X = np.asarray(X, dtype=float)
+        X = self._to_float(X)
         self.model = OneClassSVM(nu=self.nu, kernel=self.kernel, gamma=self.gamma)
         self.model.fit(X)
 
@@ -25,16 +28,13 @@ class OCSVMDetector:
 
     def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         if self.model is None:
-            raise RuntimeError("Llama fit() antes de predict()")
+            self._check_fitted("model")
 
-        X = np.asarray(X, dtype=float)
+        X = self._to_float(X)
         predictions = self.model.predict(X)
-        anomalies = (predictions == -1).astype(int)
+        anomalies = self._to_binary_from_labels(predictions, ANOMALY_LABEL)
 
         scores_raw = -self.model.decision_function(X)
-        scores = (scores_raw - self.score_min) / (
-            self.score_max - self.score_min + 1e-8
-        )
-        scores = np.clip(scores, 0.0, 1.0)
+        scores = self._scores_to_unit(scores_raw, self.score_min, self.score_max)
 
         return anomalies, scores

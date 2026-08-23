@@ -1,4 +1,4 @@
-﻿[tool.poetry]
+[tool.poetry]
 name = "ood-detection-tradml"
 version = "0.1.0"
 description = "Didactic unsupervised anomaly / out-of-distribution detection with classical ML: synthetic scikit-learn datasets and event-driven time series from the CASAS dementia dataset."
@@ -19,6 +19,9 @@ pyod = "^1.1.1"
 
 [tool.poetry.dev-dependencies]
 ruff = ">=0.16.2"
+pyright = ">=1.1.350"
+vulture = "^2.10"
+pip-audit = ">=2.7.0"
 
 [tool.ruff]
 line-length = 100
@@ -26,12 +29,99 @@ target-version = "py310"
 src = ["app", "src"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "B", "BLE001", "S110", "SIM", "C4", "RUF", "UP"]
+select = [
+    "E", "F",   # syntax / pyflakes errors
+    "W",        # warnings (unused vars, etc.)
+    "B",        # flake8-bugbear (common bugs)
+    "SIM",      # flake8-simplify
+    "UP",       # pyupgrade (modern syntax)
+    "I",        # isort (import sorting)
+    "S",        # flake8-bandit (security)
+    "ARG",      # flake8-unused-arguments
+    "C4",       # flake8-comprehensions
+    "RUF",      # ruff-specific rules
+]
 ignore = [
     "E501",   # long plotly/markdown strings are intentional in this didactic app
     "RUF001", # σ (sigma) is used intentionally in the playground math labels
 ]
 
+[tool.pyright]
+# Strict type checking for deterministic correction workflow
+pythonVersion = "3.10"
+typeCheckingMode = "strict"
+pythonPlatform = "Linux"
+pythonPath = "venv/bin/python"
+reportUnusedImport = true
+reportUnusedVariable = true
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
+reportUnknownParameterType = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
+reportMissingParameterType = false
+reportMissingTypeArgument = false
+exclude = [
+    "data",
+    "logs",
+    "venv",
+    ".git",
+    "__pycache__",
+    "*.pyc",
+]
+stubPath = "stubs"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.vulture]
+exclude = [
+    "data/**",
+    "logs/**",
+    "venv/**",
+    ".git/**",
+    "**/__pycache__/**",
+    "*.pyc",
+]
+min_confidence = 80
+ignore_decorators = [
+    "st.cache_data",
+    "st.cache_resource",
+    "st.fragment",
+    "property",
+    "staticmethod",
+    "classmethod",
+]
+ignore_names = [
+    "_next",
+    "_back",
+    "_scroll_to_top",
+    "_render_features_step",
+    "_render_detect_step",
+    "_render_ensemble_step",
+    "main",
+    "generate_fixtures",
+    "run_evaluation",
+    "run_matrix",
+    "verify_pipeline",
+    "DETECTOR_FACTORY",
+    "FIXED_PARAMS",
+    "DETECTOR_REGISTRY",
+    "DETECTOR_NAMES",
+    "DETECTOR_DEFAULTS_LIST",
+    "DETECTOR_CATEGORIES",
+    "ENSEMBLE_DEFAULTS",
+    "run_module",
+    "setup_logging",
+    "db_path",
+    "fitted_attr",
+]
+
+[tool.pip-audit]
+# Security audit config
+desc = true
+format = "json"
+output = "audit.json"
+skip-editable = true
+local = false

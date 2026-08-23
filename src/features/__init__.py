@@ -1,5 +1,6 @@
 from .event_driven_extractors import (
     IntervalStatisticsExtractor,
+    NextEventTransitionExtractor,
     NGramTransitionExtractor,
     WindowAggregationExtractor,
     generate_synthetic_events,
@@ -11,6 +12,7 @@ __all__ = [
     "FeatureScaler",
     "IntervalStatisticsExtractor",
     "NGramTransitionExtractor",
+    "NextEventTransitionExtractor",
     "TemporalFeatureExtractor",
     "WindowAggregationExtractor",
     "generate_synthetic_events",
