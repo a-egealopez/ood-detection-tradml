@@ -317,8 +317,8 @@ def _build_figure(
             (boundary_color, 3.0),
             ("rgba(255, 255, 255, 0.95)", 1.2),
         ]:
-            bx: list[float] = []
-            by: list[float] = []
+            bx: list[float | None] = []
+            by: list[float | None] = []
             for pl in polylines:
                 bx.extend(pl[:, 0].tolist())
                 by.extend(pl[:, 1].tolist())

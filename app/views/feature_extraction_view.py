@@ -26,7 +26,7 @@ from components import (
     colored_section_header,
     render_resources,
 )
-from data_access import load_all_events
+from data_access import apply_injection, load_all_events
 from theme import (
     ANOMALY,
     ANOMALY_SOFT,
@@ -516,26 +516,33 @@ def _plot_next_event(
 def _load_stream(data_source: str) -> pd.DataFrame:
     """Build the event stream from the config already chosen in the Data step."""
     if data_source == "Synthetic":
-        return generate_synthetic_events(
+        df = generate_synthetic_events(
             n_days=int(st.session_state.get("fx_days", 4)),
-            pattern=st.session_state.get("fx_pattern", "regular"),
+            pattern="regular",
             n_sensors=int(st.session_state.get("fx_sensors", 3)),
             events_per_day=int(st.session_state.get("fx_events_day", 80)),
             seed=42,
         )
+        scenario = st.session_state.get("fx_scenario", "control")
+        if scenario != "control":
+            intensity = st.session_state.get("fx_scenario_intensity", "medium")
+            df, _ = apply_injection(df, scenario, intensity)
+        return df
 
+    df: pd.DataFrame | None = None
     try:
         df = load_all_events()
     except Exception as e:  # noqa: BLE001 - DB may be missing until ingestion runs
         st.error(f"Could not load the database: {e}")
         st.stop()
 
-    if df.empty:
+    if df is None or df.empty:
         st.warning(
             "The database is empty. Run first `python src/ingestion/casas_loader.py`."
         )
         st.stop()
 
+    assert df is not None
     max_days = int(st.session_state.get("fx_days_real", 10))
     timestamps = pd.to_datetime(df["timestamp"])
     dates = sorted(timestamps.dt.date.unique())[:max_days]
@@ -545,9 +552,14 @@ def _load_stream(data_source: str) -> pd.DataFrame:
 def _recap_stream(data_source: str) -> None:
     """One-line recap of the data currently inspected (configured in Data)."""
     if data_source == "Synthetic":
+        scenario = st.session_state.get("fx_scenario", "control")
+        intensity = st.session_state.get("fx_scenario_intensity", "medium")
+        scenario_txt = (
+            f"scenario *{scenario}* ({intensity})" if scenario != "control" else "control (nothing injected)"
+        )
         st.caption(
-            "Stream chosen in the **Data step**: pattern "
-            f"*{st.session_state.get('fx_pattern', 'regular')}* · "
+            "Stream chosen in the **Data step**: "
+            f"{scenario_txt} · "
             f"{st.session_state.get('fx_days', 4)} days · "
             f"{st.session_state.get('fx_sensors', 3)} sensors · "
             f"{st.session_state.get('fx_events_day', 80)} events/day."

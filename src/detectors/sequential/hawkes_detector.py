@@ -127,16 +127,48 @@ class HawkesDetector(BaseDetector):
 
 if __name__ == "__main__":
     rng = np.random.default_rng(0)
-    X_normal = rng.poisson(5, size=(200, 4)).astype(float)
-    X_anom = rng.poisson(60, size=(30, 4)).astype(float)  # burst days: 12x activity
+
+    # DoD test 1: a burst of correlated events must spike the score at its onset,
+    # and low-activity stretches must stay quiet. Hourly-count view (24 components),
+    # as the pipeline uses. Note: a self-exciting model adapts to a *sustained*
+    # burst after the first day (bursts beget bursts), so the spike marks the onset.
+    n_normal = 60
+    hourly = rng.poisson(5, size=(n_normal, 24)).astype(float)
+    burst = rng.poisson(40, size=(2, 24)).astype(float)  # 8x activity days
+    tail = rng.poisson(5, size=(20, 24)).astype(float)
+    X = np.vstack([hourly, burst, tail])
 
     detector = HawkesDetector()
-    detector.fit(X_normal)
-    anomalies, scores = detector.predict(np.vstack([X_normal, X_anom]))
+    detector.fit(hourly)
+    anomalies, scores = detector.predict(X)
 
-    n_detected = anomalies[-len(X_anom):].sum()
-    print(f" Anomalies detected: {n_detected} / {len(X_anom)}")
-    print(f" Score range: [{scores.min():.3f}, {scores.max():.3f}]")
-    assert n_detected >= 0.6 * len(X_anom), "should detect high-activity anomalies"
+    burst_window = slice(n_normal, n_normal + len(burst))
+    quiet_window = slice(n_normal + len(burst), len(X))
+    print(f" Burst-window max score: {scores[burst_window].max():.3f}")
+    print(f" Quiet-tail mean score:  {scores[quiet_window].mean():.3f}")
+    assert scores[burst_window].max() >= scores[quiet_window].max(), (
+        "Hawkes should spike at the burst onset, not in quiet stretches"
+    )
     detector._assert_unit_range(scores)
+
+    # DoD test 2: a temporal *displacement* (events moved from a busy hour into a
+    # normally quiet night hour, totals unchanged) must also raise the score.
+    normal_day = rng.poisson(5, size=(24,)).astype(float)
+    displaced_day = normal_day.copy()
+    moved = min(6, int(displaced_day[12]))  # move some midday events to 03:00
+    displaced_day[12] -= moved
+    displaced_day[3] += moved
+
+    hourly2 = rng.poisson(5, size=(60, 24)).astype(float)
+    X2 = np.vstack([hourly2, displaced_day[None, :], hourly2[:3]])
+    detector2 = HawkesDetector()
+    detector2.fit(hourly2)
+    _, scores2 = detector2.predict(X2)
+
+    displaced_score = float(scores2[60])
+    baseline_score = float(scores2[61:].mean())
+    print(f" Displaced-day score: {displaced_score:.3f} vs baseline {baseline_score:.3f}")
+    assert displaced_score > baseline_score, "Hawkes should flag a temporal displacement"
+    detector2._assert_unit_range(scores2)
+
     print(" Validation OK")

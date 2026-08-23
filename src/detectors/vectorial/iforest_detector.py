@@ -24,7 +24,7 @@ class IsolationForestDetector(BaseDetector):
         self.score_max = None
 
     def fit(self, X: np.ndarray) -> "IsolationForestDetector":
-        X = self._to_float(X)
+        X_arr = self._to_float(X)
         kwargs = {
             "contamination": self.contamination,
             "n_estimators": self.n_estimators,
@@ -41,9 +41,9 @@ class IsolationForestDetector(BaseDetector):
             self.model = IsolationForest(
                 **{k: v for k, v in kwargs.items() if k != "sliced_path"}
             )
-        self.model.fit(X)
+        self.model.fit(X_arr)
 
-        raw_train = -self.model.score_samples(X)
+        raw_train = -self.model.score_samples(X_arr)
         self.score_min = float(raw_train.min())
         self.score_max = float(raw_train.max())
         return self
@@ -52,11 +52,11 @@ class IsolationForestDetector(BaseDetector):
         if self.model is None:
             self._check_fitted("model")
 
-        X = self._to_float(X)
-        predictions = self.model.predict(X)
+        X_arr = self._to_float(X)
+        predictions = self.model.predict(X_arr)
         anomalies = self._to_binary_from_labels(predictions, ANOMALY_LABEL)
 
-        raw_scores = -self.model.score_samples(X)
+        raw_scores = -self.model.score_samples(X_arr)
         scores = self._scores_to_unit(raw_scores, self.score_min, self.score_max)
 
         return anomalies, scores

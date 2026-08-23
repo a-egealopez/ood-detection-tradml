@@ -11,13 +11,16 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from components import (
+    auroc_pill,
     breadcrumb,
     clickable_cards,
     colored_section_header,
@@ -28,8 +31,9 @@ from components import (
     render_param_widgets,
     render_resources,
 )
-from data_access import list_houses, load_house_events
+from data_access import list_houses, load_house_events, load_house_events_injected
 from detectors.factory import build_detector
+from detectors.sequential.hawkes_detector import HawkesDetector
 from mesh import GRID_RESOLUTION, contour_polylines, score_mesh
 from streamlit_config import (
     DETECTOR_CATEGORIES,
@@ -46,6 +50,7 @@ from theme import (
     PRIMARY_MID,
     PRIMARY_SOFT,
     SUCCESS,
+    WARNING,
     apply_layout,
     display_chart,
     family_color,
@@ -126,6 +131,8 @@ class HouseFeatures:
 
     ``train_n`` is the number of training rows (the 70% split) used to fit the
     scaler and the PCA - only training rows feed the fits, never the test tail.
+    ``X_counts`` is the raw (unscaled) daily event-count subset, used only by
+    detectors that need genuine counts (Hawkes).
     """
 
     X_scaled: np.ndarray
@@ -133,10 +140,12 @@ class HouseFeatures:
     pca: Any
     dates: list[str]
     train_n: int
+    X_counts: np.ndarray
 
 
-@st.cache_data(show_spinner=False)
-def _house_features_cached(source: str, house_id: str) -> "HouseFeatures":
+def _house_features_cached(
+    source: str, house_id: str, scenario: str = "control", intensity: str = "medium"
+) -> "HouseFeatures":
     """Scaled daily features for one house (cached).
 
     ``X_2d`` is a PCA(2) projection of the scaled features, fitted on the training
@@ -147,18 +156,31 @@ def _house_features_cached(source: str, house_id: str) -> "HouseFeatures":
 
     from pipeline import MIN_DAYS
 
-    df = load_house_events(source, house_id)
+    if source == "synthetic" and scenario != "control":
+        df, _ = load_house_events_injected(source, house_id, scenario, intensity)
+    else:
+        df = load_house_events(source, house_id)
     if df is None or df.empty:
-        return HouseFeatures((), (), None, [], 0)
+        return HouseFeatures((), (), None, [], 0, ())
     extractor = TemporalFeatureExtractor()
     X, dates = extractor.extract(df)
     if len(X) < MIN_DAYS:
-        return HouseFeatures((), (), None, [], 0)
+        return HouseFeatures((), (), None, [], 0, ())
+    X_counts = extractor.count_columns(X)
     X_scaled = FeatureScaler().fit_transform(X)
     train_n = max(1, int(len(X_scaled) * 0.7))
     pca = PCA(n_components=2).fit(X_scaled[:train_n])
     X_2d = pca.transform(X_scaled)
-    return HouseFeatures(X_scaled, X_2d, pca, list(dates), train_n)
+    return HouseFeatures(X_scaled, X_2d, pca, list(dates), train_n, X_counts)
+
+
+def _injection_config(source: str) -> tuple[str, str]:
+    """Anomaly scenario chosen in the Data step (only applies to synthetic)."""
+    if source == "synthetic":
+        scenario = st.session_state.get("fx_scenario", "control")
+        intensity = st.session_state.get("fx_scenario_intensity", "medium")
+        return scenario, intensity
+    return "control", "medium"
 
 
 def _render_detector_card(
@@ -183,21 +205,35 @@ def _render_detector_card(
     values = _detector_params_from_session(source, [name])[name]
     try:
         detector = build_detector(name, values)
-        detector.fit(features.X_scaled[: features.train_n])
-        y_pred, scores = detector.predict(features.X_scaled)
-        view = st.segmented_control(
-            "Visualization",
-            ["Time", "Score map"],
-            default="Score map",
-            label_visibility="collapsed",
-            key=f"card_view_{source}_{preview_house}_{name}",
-        )
-        if view == "Score map":
-            fig = _build_detector_cloud(
-                name, features.X_2d, features.pca, scores, detector, y_pred, features.dates
+        uses_counts = isinstance(detector, HawkesDetector)
+        X_fit = features.X_counts if uses_counts else features.X_scaled
+        detector.fit(X_fit[: features.train_n])
+        y_pred, scores = detector.predict(X_fit)
+        if uses_counts:
+            # The PCA-plane score map is fitted on the scaled features; a
+            # count-based intensity model cannot be drawn over it honestly, so
+            # the Hawkes card only shows the timeline.
+            st.caption(
+                "Applied to the raw daily event counts (n_events, n_sensors, "
+                "activity_hours) - a Poisson intensity process, not the scaled "
+                "feature matrix. The score map is only meaningful for "
+                "vectorial detectors."
             )
-        else:
             fig = _build_detector_timeline(features.dates, scores, name)
+        else:
+            view = st.segmented_control(
+                "Visualization",
+                ["Time", "Score map"],
+                default="Score map",
+                label_visibility="collapsed",
+                key=f"card_view_{source}_{preview_house}_{name}",
+            )
+            if view == "Score map":
+                fig = _build_detector_cloud(
+                    name, features.X_2d, features.pca, scores, detector, y_pred, features.dates
+                )
+            else:
+                fig = _build_detector_timeline(features.dates, scores, name)
         display_chart(fig, key=f"det_chart_{source}_{preview_house}_{name}")
     except Exception as exc:  # noqa: BLE001 - fragile deps (e.g. tick) may raise
         st.warning(f"⚠️ {name}: {exc}")
@@ -218,10 +254,17 @@ def _render_detect_panel(source: str) -> None:
     preview_house = st.selectbox(
         "House to visualize", houses, key=f"preview_house_{source}"
     )
-    features = _house_features_cached(source, preview_house)
+    scenario, intensity = _injection_config(source)
+    features = _house_features_cached(source, preview_house, scenario, intensity)
     if not len(features.dates):
         st.warning("Not enough days in this house to fit the detectors.")
         st.stop()
+
+    if scenario != "control":
+        st.caption(
+            f"Anomaly scenario **{scenario}** ({intensity}) is applied to this "
+            "house — the scores below reflect the injected stream."
+        )
 
     if f"det_names_{source}" not in st.session_state:
         st.session_state[f"det_names_{source}"] = list(DETECTOR_DEFAULTS_LIST)
@@ -292,6 +335,7 @@ def _resolve_detect_config(source: str) -> dict:
 
 def _combine_config(source: str, detect: dict, ensemble: dict) -> dict:
     """Merge the Detect-step and Ensemble-step pieces into one pipeline config."""
+    scenario, intensity = _injection_config(source)
     pipeline_kwargs = {
         "detector_names": detect["detector_names"],
         "detector_params": detect["detector_params"],
@@ -310,10 +354,14 @@ def _combine_config(source: str, detect: dict, ensemble: dict) -> dict:
         ),
         ensemble["ensemble_mode"],
         ensemble["threshold_percentile"],
+        scenario,
+        intensity,
     )
     return {
         **detect,
         **ensemble,
+        "scenario": scenario,
+        "intensity": intensity,
         "pipeline_kwargs": pipeline_kwargs,
         "signature": signatures,
     }
@@ -334,8 +382,16 @@ def _run_pipeline(source: str, config: dict) -> dict:
         return results
 
     new_results = {}
+    new_anom = {}
     for house_id in config["houses"]:
-        df = load_house_events(source, house_id)
+        scenario = config.get("scenario", "control")
+        if source == "synthetic" and scenario != "control":
+            df, anomaly_dates = load_house_events_injected(
+                source, house_id, scenario, config.get("intensity", "medium")
+            )
+        else:
+            df = load_house_events(source, house_id)
+            anomaly_dates = ()
         try:
             result, error = run_house(house_id, df, **config["pipeline_kwargs"])
         except Exception as e:  # noqa: BLE001 - fragile deps (e.g. tick) may raise
@@ -344,16 +400,67 @@ def _run_pipeline(source: str, config: dict) -> dict:
             st.warning(f"[{house_id}] {error}")
         else:
             new_results[house_id] = result
+            new_anom[house_id] = tuple(anomaly_dates)
 
     st.session_state[f"sig_{source}"] = config["signature"]
     st.session_state[f"results_{source}"] = new_results
+    st.session_state[f"anom_{source}"] = new_anom
     return new_results
 
 
 # ============================================================================
 # RESULT TABS
 # ============================================================================
-def _render_house_results(source: str, house_view: str, r: Any) -> None:
+def _render_injected_eval(
+    source: str,
+    house_view: str,
+    details: pd.DataFrame,
+    anomaly_dates: tuple,
+    score_cols: list[str],
+) -> None:
+    """AUROC of each detector against the injected days (holdout tail only).
+
+    The synthetic scenario gives us ground-truth labels for the first time in the
+    CASAS track, so the ensemble results can answer "did THIS detector catch THIS
+    anomaly type?" — the same question the CLI matrix answers per cell.
+    """
+    colored_section_header("🎯", "Injected anomaly evaluation", WARNING)
+    scenario = st.session_state.get("fx_scenario", "control")
+    intensity = st.session_state.get("fx_scenario_intensity", "medium")
+    st.caption(
+        f"Scenario **{scenario}** ({intensity}) — "
+        f"{len(anomaly_dates)} injected day(s): "
+        + ", ".join(str(d) for d in anomaly_dates)
+        + " (AUROC measured on the holdout tail only)."
+    )
+
+    dates = list(details["date"])
+    split_idx = max(1, int(len(dates) * 0.7))
+    holdout = np.zeros(len(dates), dtype=bool)
+    holdout[split_idx:] = True
+    y = np.asarray([d in set(anomaly_dates) for d in dates], dtype=int)
+
+    labels = score_cols + ["ensemble_score"]
+    cols = st.columns(len(labels))
+    for col, label in zip(cols, labels, strict=True):
+        with col:
+            try:
+                auroc = float(roc_auc_score(y[holdout], details[label].values[holdout]))
+            except ValueError:
+                auroc = None
+            auroc_pill(auroc, label=label.replace("_score", ""))
+
+    st.caption(
+        "Expected winners: **point** → the distance / vectorial family (Z-Score, "
+        "Mahalanobis, IForest, PCA Reconstruction); **contextual** → Z-Score / HMM / "
+        "Hawkes (the order models stay blind, ~0.5); **collective** → the Markov "
+        "next-event model (the distance / context family stays blind)."
+    )
+
+
+def _render_house_results(
+    source: str, house_view: str, r: Any, anomaly_dates: tuple = ()
+) -> None:
     """Full result section for one house (houses are chosen in the Data step)."""
     details, anomalies, scores = r.details, r.anomalies, r.scores
     threshold = getattr(r.ensemble, "threshold", None)
@@ -395,6 +502,18 @@ def _render_house_results(source: str, house_view: str, r: Any) -> None:
             name="Ensemble Score",
         )
     )
+    if anomaly_dates:
+        # Injected days (ground truth) shaded behind the scores: the anomaly block
+        # sits on the holdout tail, so detection means raising the score there.
+        fig_timeline.add_vrect(
+            x0=pd.Timestamp(min(anomaly_dates)) - pd.Timedelta(hours=12),
+            x1=pd.Timestamp(max(anomaly_dates)) + pd.Timedelta(hours=12),
+            fillcolor=WARNING,
+            opacity=0.14,
+            line_width=0,
+            annotation_text="injected",
+            annotation_position="top left",
+        )
     if threshold is not None:
         mode = r.ensemble.ensemble_mode
         label = (
@@ -413,6 +532,9 @@ def _render_house_results(source: str, house_view: str, r: Any) -> None:
     )
     display_chart(fig_timeline, key=f"timeline_{source}_{house_view}")
     st.caption("Red = above the threshold percentile · each point = one day.")
+
+    if anomaly_dates:
+        _render_injected_eval(source, house_view, details, anomaly_dates, score_cols)
 
     fig_hist = go.Figure(
         go.Histogram(
@@ -471,7 +593,8 @@ def _render_anomalies_tab(results: dict, source: str) -> None:
         key=f"anom_house_{source}",
         help="All houses run the pipeline; this picker only chooses which one to inspect.",
     )
-    _render_house_results(source, house_view, results[house_view])
+    anomaly_dates = st.session_state.get(f"anom_{source}", {}).get(house_view, ())
+    _render_house_results(source, house_view, results[house_view], anomaly_dates)
 
     info_box(
         "⚡",
@@ -553,8 +676,8 @@ def _build_detector_cloud(
             (boundary_color, 3.0),
             ("rgba(255, 255, 255, 0.95)", 1.2),
         ]:
-            bx: list[float] = []
-            by: list[float] = []
+            bx: list[float | None] = []
+            by: list[float | None] = []
             for pl in polylines:
                 bx.extend(pl[:, 0].tolist())
                 by.extend(pl[:, 1].tolist())

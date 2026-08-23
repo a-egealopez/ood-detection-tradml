@@ -257,7 +257,9 @@ RESOURCES: tuple[Resource, ...] = (
         title="tick",
         kind="tool",
         url="https://x-datainitiative.github.io/tick/",
-        note="The point-process library used here; simulates and fits Hawkes kernels (heavy native build).",
+        note="The reference point-process library; the Hawkes detector here implements the "
+        "exponential-kernel intensity recursion directly in numpy (Ogata 1988), so tick "
+        "is not required.",
     ),
     # --- Feature-extraction methods (Features step) -------------------------
     Resource(

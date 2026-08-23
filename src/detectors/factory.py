@@ -6,9 +6,24 @@ numeric-looking strings (e.g. "0.5") become floats.
 """
 
 import contextlib
+from typing import Protocol
+
+import numpy as np
+
+
+class Detector(Protocol):
+    """Common detector interface (fit + predict returning (binary, scores))."""
+
+    def fit(self, X: np.ndarray) -> "Detector":
+        ...
+
+    def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        ...
+
 
 from .sequential.hawkes_detector import HawkesDetector
 from .sequential.hmm_detector import HMMDetector
+from .sequential.markov_sequence_detector import MarkovSequenceDetector
 from .vectorial import (
     EllipticEnvelopeDetector,
     IsolationForestDetector,
@@ -21,7 +36,7 @@ from .vectorial import (
     ZScoreDetector,
 )
 
-DETECTOR_FACTORY: dict[str, type] = {
+DETECTOR_FACTORY: dict[str, type[Detector]] = {
     "Isolation Forest": IsolationForestDetector,
     "Extended IForest": IsolationForestDetector,
     "Mahalanobis": MahalanobisDetector,
@@ -36,6 +51,7 @@ DETECTOR_FACTORY: dict[str, type] = {
     "PCA Reconstruction": PCAReconstructionDetector,
     "HMM": HMMDetector,
     "Hawkes": HawkesDetector,
+    "Markov Sequence": MarkovSequenceDetector,
 }
 
 # Parameters that are fixed per named detector (drives UI variants of one class,
@@ -48,7 +64,7 @@ FIXED_PARAMS: dict[str, dict] = {
 }
 
 
-def build_detector(name: str, params: dict) -> object:
+def build_detector(name: str, params: dict) -> Detector:
     """Instantiate a detector by display name with the given parameter kwargs."""
     if name not in DETECTOR_FACTORY:
         raise ValueError(f"Unknown detector: {name!r}")
@@ -69,6 +85,6 @@ def build_detector(name: str, params: dict) -> object:
     return detector_cls(**kwargs)
 
 
-def build_detectors(names: list[str], params_by_detector: dict) -> list:
+def build_detectors(names: list[str], params_by_detector: dict) -> list[Detector]:
     """Build one detector per display name, passing each its configured params."""
     return [build_detector(name, params_by_detector.get(name, {})) for name in names]

@@ -16,13 +16,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from components import (
-    PATTERN_EXPLANATIONS,
-    breadcrumb,
-    clickable_cards,
-    colored_section_header,
-    pattern_preview,
-)
+from components import breadcrumb, clickable_cards, colored_section_header
 from theme import (
     FAMILY_BOUNDARY,
     FAMILY_DISTANCE,
@@ -111,8 +105,9 @@ def _preview_casas() -> go.Figure:
 def _render_casas_demo_config() -> None:
     """Demo data panel for the CASAS track (chosen here, used by Features).
 
-    Synthetic: pick a temporal pattern + stream size. Real: pick how many days to
-    read from the loaded database. All keys surface in the Features step too.
+    Synthetic: pick a stream size + an optional anomaly scenario. Real: pick how
+    many days to read from the loaded database. All keys surface in the Features
+    step too.
     """
     origin = st.session_state.get("casas_source", "Synthetic")
     if origin != "Synthetic":
@@ -138,7 +133,8 @@ def _render_casas_demo_config() -> None:
 
     st.markdown("#### Synthetic demo stream")
     st.caption(
-        "Tune the size of the stream, then pick the day-of-life pattern the Features tutorial will inspect."
+        "Tune the size of the stream the Features tutorial will inspect, then pick "
+        "the anomaly scenario the detectors should face."
     )
 
     with st.container(border=True):
@@ -165,34 +161,66 @@ def _render_casas_demo_config() -> None:
                 key="fx_events_day",
             )
 
-    pattern_specs = [
+    st.markdown("#### Anomaly scenario")
+    st.caption(
+        "Optionally inject coherent anomalies (point / contextual / collective) into "
+        "the synthetic stream. The injected days are treated as labels, so the ensemble "
+        "results can report AUROC. **control** injects nothing — it is the null control "
+        "the detectors should treat as noise. Only meaningful on **synthetic** data — "
+        "real homes have near-symmetric transitions that a reversal cannot exploit."
+    )
+    scenario_specs = [
         {
-            "id": "regular",
-            "icon": "🔄",
-            "title": "regular",
-            "description": "Steady rhythm, evenly paced events.",
+            "id": "control",
+            "icon": "🌿",
+            "title": "control",
+            "description": "Null control — nothing injected, detectors should "
+            "stay at chance (~0.5).",
             "color": SUCCESS,
-            "figure": pattern_preview("regular"),
         },
         {
-            "id": "bursty",
-            "icon": "⚡",
-            "title": "bursty",
-            "description": "Activity clusters with gaps between.",
+            "id": "point",
+            "icon": "💥",
+            "title": "point",
+            "description": "Night burst: a day that is suddenly very loud — extra "
+            "events at 3-4 AM from one sensor.",
+            "color": PRIMARY,
+        },
+        {
+            "id": "contextual",
+            "icon": "🕐",
+            "title": "contextual",
+            "description": "Whole routine shifted S hours: an anomalous day happens "
+            "at the wrong time of day.",
             "color": FAMILY_DISTANCE,
-            "figure": pattern_preview("bursty"),
         },
         {
-            "id": "day_night",
-            "icon": "🌗",
-            "title": "day_night",
-            "description": "Active by day, quiet by night.",
+            "id": "collective",
+            "icon": "🔀",
+            "title": "collective",
+            "description": "Intra-day sensor order partially reversed: the sequence "
+            "of rooms is wrong.",
             "color": FAMILY_BOUNDARY,
-            "figure": pattern_preview("day_night"),
         },
     ]
-    pattern = clickable_cards(pattern_specs, key="fx_pattern")
-    st.info(PATTERN_EXPLANATIONS[pattern])
+    scenario = clickable_cards(scenario_specs, key="fx_scenario")
+
+    if scenario != "control":
+        st.segmented_control(
+            "Intensity",
+            ["low", "medium", "high"],
+            default="medium",
+            key="fx_scenario_intensity",
+            help=(
+                "Contextual: hours the routine is shifted (1/3/5h). Collective: "
+                "fraction of positions taken from the reversed order (0.25/0.55/1.0)."
+            ),
+        )
+        st.caption(
+            "Contextual = routine at the wrong time of day (caught by Z-Score, HMM, "
+            "Hawkes). Collective = wrong room order (caught by the next-event Markov "
+            "model)."
+        )
 
 
 def render_data_step() -> None:

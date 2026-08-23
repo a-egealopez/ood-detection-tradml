@@ -97,10 +97,14 @@ def contour_polylines(
             if len(crossed) == 2:
                 segments.append((crossed[0], crossed[1]))
             elif len(crossed) == 4:  # saddle: connect via the cell-average decider
+                c0: tuple[float, float] = crossed[0]
+                c1: tuple[float, float] = crossed[1]
+                c2: tuple[float, float] = crossed[2]
+                c3: tuple[float, float] = crossed[3]
                 if (v00 + v10 + v11 + v01) / 4.0 >= level:
-                    segments.extend(((e0, e1), (e2, e3)))
+                    segments.extend(((c0, c1), (c2, c3)))
                 else:
-                    segments.extend(((e0, e3), (e1, e2)))
+                    segments.extend(((c0, c3), (c1, c2)))
 
     if not segments:
         return []

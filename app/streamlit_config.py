@@ -23,7 +23,7 @@ class ParamSpec:
     label: str
     min: float
     max: float
-    default: float
+    default: float | str
     step: float
     kwarg: str  # keyword passed to the detector constructor
     options: tuple[str, ...] = ()  # non-empty -> render a selectbox instead of a slider
@@ -204,6 +204,20 @@ DETECTOR_REGISTRY: dict[str, DetectorSpec] = {
         description="Self-exciting point process for event streams.",
         category="Sequential",
         params=(ParamSpec("Decay", 0.1, 1.0, 0.5, 0.1, "decay"),),
+    ),
+    "Markov Sequence": DetectorSpec(
+        name="Markov Sequence",
+        description=(
+            "First-order Markov transition likelihood: scores each day by how "
+            "unlikely its sensor transitions are under normal behavior "
+            "(DeepLog-style next-event model). Catches order/collective anomalies."
+        ),
+        category="Sequential",
+        params=(
+            ParamSpec(
+                "Threshold percentile", 80, 99, 90, 1, "threshold_percentile"
+            ),
+        ),
     ),
 }
 

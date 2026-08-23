@@ -13,6 +13,7 @@ class EnsembleDetector:
         weights: np.ndarray = None,
         ensemble_mode: Literal["soft", "hard"] = "soft",
         ensemble_threshold_percentile: float = 90,
+        detector_inputs: list[np.ndarray | None] | None = None,
     ):
         """Combine per-detector scores into one anomaly verdict.
 
@@ -23,6 +24,11 @@ class EnsembleDetector:
               anomaly (score_final > 0.5).
 
         weights: per-detector weight vector. If None, uniform.
+
+        detector_inputs: optional per-detector feature matrices, aligned with
+            ``detectors``. Most detectors consume the shared scaled matrix, but
+            some (e.g. Hawkes) only make sense on a different view of the data
+            (raw event counts). A ``None`` entry falls back to the shared ``X``.
         """
         if detectors is None:
             detectors = []
@@ -32,6 +38,9 @@ class EnsembleDetector:
         self.ensemble_mode = ensemble_mode
         self.ensemble_threshold_percentile = ensemble_threshold_percentile
         self.threshold = None
+        if detector_inputs is None:
+            detector_inputs = [None] * len(detectors)
+        self.detector_inputs = list(detector_inputs)
 
         if weights is None:
             weights = (
@@ -47,13 +56,29 @@ class EnsembleDetector:
         assert len(weights) == len(detectors), "Len(weights) != Len(detectors)"
         self.weights = weights
 
+    def _input_for(self, index: int, X: np.ndarray) -> np.ndarray:
+        """Feature matrix a single detector consumes.
+
+        Detectors without a dedicated input (``None`` entry) receive the shared
+        ``X``. A dedicated input is truncated to the length of ``X`` so the
+        pipeline can pass full matrices and the ensemble slices the train
+        prefix during ``fit`` automatically.
+        """
+        dedicated = self.detector_inputs[index]
+        if dedicated is None:
+            return X
+        dedicated = np.asarray(dedicated, dtype=float)
+        if len(dedicated) >= len(X):
+            return dedicated[: len(X)]
+        return dedicated
+
     def fit(self, X: np.ndarray) -> "EnsembleDetector":
         """Fit every detector and compute the ensemble threshold."""
-        X = np.asarray(X, dtype=float)
-        for detector in self.detectors:
-            detector.fit(X)
+        X_arr = np.asarray(X, dtype=float)
+        for i, detector in enumerate(self.detectors):
+            detector.fit(self._input_for(i, X_arr))
 
-        _, scores_train = self._predict_raw(X)
+        _, scores_train = self._predict_raw(X_arr)
 
         if self.ensemble_mode == "hard":
             # Majority rule is fixed: a point is anomalous when a weighted
@@ -72,11 +97,11 @@ class EnsembleDetector:
         """Per-detector scores and the combined score (before the threshold)."""
         scores_per_detector = []
         votes_per_detector = []
-        for detector in self.detectors:
+        for i, detector in enumerate(self.detectors):
             # Each detector's binary verdict uses its OWN learned threshold
             # (captured during fit); the continuous score is kept for the
             # soft mode and for the details table.
-            anomalies, score = detector.predict(X)
+            anomalies, score = detector.predict(self._input_for(i, X))
             scores_per_detector.append(score)
             votes_per_detector.append(anomalies.astype(float))
 
@@ -100,8 +125,8 @@ class EnsembleDetector:
         if self.threshold is None:
             raise RuntimeError("You must call fit() before predict()")
 
-        X = np.asarray(X, dtype=float)
-        scores_all, score_final = self._predict_raw(X)
+        X_arr = np.asarray(X, dtype=float)
+        scores_all, score_final = self._predict_raw(X_arr)
 
         anomalies_final = (score_final > self.threshold).astype(int)
 

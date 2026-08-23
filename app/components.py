@@ -4,14 +4,12 @@ import plotly.graph_objects as go
 import streamlit as st
 from references import KIND_LABELS, resources_for
 from theme import (
-    ANOMALY_SOFT,
     AUROC_BAD,
     AUROC_GOOD,
     AUROC_MID,
     MUTED,
     PRIMARY,
     TEXT,
-    apply_layout,
     badge,
     display_chart,
     family_color,
@@ -184,71 +182,6 @@ def clickable_cards(specs: list[dict], key: str, gap: str = "medium") -> str:
 def _click_set(key: str, value: str) -> None:
     """Button callback: store the clicked card id into session state."""
     st.session_state[key] = value
-
-
-# ============================================================================
-# Synthetic temporal patterns (chosen in the Data step, used by the Features)
-# ============================================================================
-PATTERN_EXPLANATIONS: dict[str, str] = {
-    "regular": (
-        "Steady rhythm: events arrive at a nearly constant pace, gaps are all similar "
-        "(**low CV / Fano factor**)."
-    ),
-    "bursty": (
-        "Activity clusters into short bursts with long silences between them "
-        "(**high CV / Fano factor**)."
-    ),
-    "day_night": (
-        "Active by day (08–22h), almost no nocturnal events — strong day/night "
-        "contrast."
-    ),
-}
-
-
-def pattern_preview(pattern: str) -> go.Figure:
-    """One-day activity profile of a synthetic temporal pattern.
-
-    Hourly event count computed from the generator, night hours shaded - a
-    clear one-glance read of what each pattern (regular/bursty/day_night) looks
-    like. Used as the preview inside the picker cards (Data step).
-    """
-    import numpy as np
-    import pandas as pd
-
-    from features.event_driven_extractors import generate_synthetic_events
-
-    df = generate_synthetic_events(
-        n_days=1, pattern=pattern, n_sensors=3, events_per_day=80, seed=42
-    )
-    ts = pd.to_datetime(df["timestamp"])
-    hours = ts.dt.hour + ts.dt.minute / 60.0
-    counts, _ = np.histogram(hours, bins=24, range=(0, 24))
-
-    fig = go.Figure(
-        go.Bar(
-            x=np.arange(24) + 0.5,
-            y=counts,
-            marker_color=PRIMARY,
-            marker_line_width=0,
-            hoverinfo="skip",
-        )
-    )
-    fig.add_vrect(x0=0, x1=8, fillcolor=ANOMALY_SOFT, line_width=0)
-    fig.add_vrect(x0=22, x1=24, fillcolor=ANOMALY_SOFT, line_width=0)
-    apply_layout(fig, None, height=135)
-    fig.update_layout(
-        margin={"l": 6, "r": 6, "t": 8, "b": 28},
-        bargap=0.15,
-        showlegend=False,
-    )
-    fig.update_xaxes(
-        title_text="Hour of day",
-        showgrid=False,
-        zeroline=False,
-        tickvals=[0, 6, 12, 18, 23],
-    )
-    fig.update_yaxes(showgrid=False, zeroline=False, visible=False)
-    return fig
 
 
 def auroc_pill(auroc: float | None, label: str = "AUROC") -> None:

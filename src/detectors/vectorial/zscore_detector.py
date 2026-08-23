@@ -20,11 +20,11 @@ class ZScoreDetector(BaseDetector):
         self.score_max = None
 
     def fit(self, X: np.ndarray) -> "ZScoreDetector":
-        X = self._to_float(X)
-        self.mu = X.mean(axis=0)
-        self.sigma = X.std(axis=0)
+        X_arr = self._to_float(X)
+        self.mu = X_arr.mean(axis=0)
+        self.sigma = X_arr.std(axis=0)
 
-        zmax_train = self._max_abs_z(X)
+        zmax_train = self._max_abs_z(X_arr)
         self.score_min = float(zmax_train.min())
         self.score_max = float(zmax_train.max())
         return self
@@ -37,8 +37,8 @@ class ZScoreDetector(BaseDetector):
         if self.mu is None or self.sigma is None:
             self._check_fitted("mu/sigma")
 
-        X = self._to_float(X)
-        zmax = self._max_abs_z(X)
+        X_arr = self._to_float(X)
+        zmax = self._max_abs_z(X_arr)
 
         anomalies = self._above_threshold(zmax, self.threshold)
         scores = self._scores_to_unit(zmax, self.score_min, self.score_max)
