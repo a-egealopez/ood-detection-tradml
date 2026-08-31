@@ -28,13 +28,21 @@ from components import (
     info_box,
     metric_row,
     read_param_values,
+    render_decision_boundary,
     render_param_widgets,
     render_resources,
+    safe_fit_predict,
 )
-from data_access import list_houses, load_house_events, load_house_events_injected
+from data_access import (
+    get_injection_config,
+    list_houses,
+    load_house_events,
+    load_house_events_injected,
+)
 from detectors.factory import build_detector
 from detectors.sequential.hawkes_detector import HawkesDetector
-from mesh import GRID_RESOLUTION, contour_polylines, score_mesh
+from features import FeatureScaler, TemporalFeatureExtractor
+from mesh import GRID_RESOLUTION, score_mesh
 from streamlit_config import (
     DETECTOR_CATEGORIES,
     DETECTOR_DEFAULTS_LIST,
@@ -57,20 +65,18 @@ from theme import (
     score_scale_css,
 )
 
-from features import FeatureScaler, TemporalFeatureExtractor
-
 
 # ============================================================================
 # MAIN-AREA CONFIGURATION (moved out of the sidebar, like the Features step)
 # ============================================================================
-def _detector_params_from_session(source: str, names: list[str]) -> dict:
+def _detector_params_from_session(names: list[str]) -> dict:
     """Reassemble ``{name: {kwarg: value}}`` from the tuning sliders of each card."""
     params = {}
     for name in names:
         spec = DETECTOR_REGISTRY.get(name)
         if spec is None:
             continue
-        params[name] = read_param_values(spec.params, f"adv_{source}_{name}")
+        params[name] = read_param_values(spec.params, f"adv_casas_{name}")
     return params
 
 
@@ -114,12 +120,13 @@ def _resolved_houses(source: str) -> list[str]:
     """All houses available for the source - houses are never picked per-step."""
     try:
         return list(list_houses(source))
-    except Exception:  # noqa: BLE001 - DB may not exist until ingestion runs
+    except Exception:
         return []
 
 
-def _toggle_detector(store_key: str, name: str) -> None:
+def _toggle_detector(name: str) -> None:
     """Flip a detector's membership in the ensemble selection."""
+    store_key = "det_names_casas"
     current = set(st.session_state.get(store_key, DETECTOR_DEFAULTS_LIST))
     current.symmetric_difference_update([name])
     st.session_state[store_key] = [n for n in DETECTOR_NAMES if n in current]
@@ -177,14 +184,11 @@ def _house_features_cached(
 def _injection_config(source: str) -> tuple[str, str]:
     """Anomaly scenario chosen in the Data step (only applies to synthetic)."""
     if source == "synthetic":
-        scenario = st.session_state.get("fx_scenario", "control")
-        intensity = st.session_state.get("fx_scenario_intensity", "medium")
-        return scenario, intensity
+        return get_injection_config()
     return "control", "medium"
 
 
 def _render_detector_card(
-    source: str,
     preview_house: str,
     name: str,
     selected: bool,
@@ -194,21 +198,20 @@ def _render_detector_card(
     spec = DETECTOR_REGISTRY[name]
     st.button(
         f"{'✅' if selected else '▫️'} {name}",
-        key=f"toggle_{source}_{name}",
+        key=f"toggle_casas_{name}",
         use_container_width=True,
         type="primary" if selected else "secondary",
         on_click=_toggle_detector,
-        args=(f"det_names_{source}", name),
+        args=(name,),
         help="Click to include / exclude this detector from the ensemble.",
     )
 
-    values = _detector_params_from_session(source, [name])[name]
+    values = _detector_params_from_session([name])[name]
     try:
         detector = build_detector(name, values)
         uses_counts = isinstance(detector, HawkesDetector)
         X_fit = features.X_counts if uses_counts else features.X_scaled
-        detector.fit(X_fit[: features.train_n])
-        y_pred, scores = detector.predict(X_fit)
+        y_pred, scores = safe_fit_predict(detector, X_fit[: features.train_n], X_fit)
         if uses_counts:
             # The PCA-plane score map is fitted on the scaled features; a
             # count-based intensity model cannot be drawn over it honestly, so
@@ -226,7 +229,7 @@ def _render_detector_card(
                 ["Time", "Score map"],
                 default="Score map",
                 label_visibility="collapsed",
-                key=f"card_view_{source}_{preview_house}_{name}",
+                key=f"card_view_casas_{preview_house}_{name}",
             )
             if view == "Score map":
                 fig = _build_detector_cloud(
@@ -234,11 +237,11 @@ def _render_detector_card(
                 )
             else:
                 fig = _build_detector_timeline(features.dates, scores, name)
-        display_chart(fig, key=f"det_chart_{source}_{preview_house}_{name}")
-    except Exception as exc:  # noqa: BLE001 - fragile deps (e.g. tick) may raise
+        display_chart(fig, key=f"det_chart_casas_{preview_house}_{name}")
+    except Exception as exc:
         st.warning(f"⚠️ {name}: {exc}")
 
-    render_param_widgets(spec.params, f"adv_{source}_{name}", values, help=True)
+    render_param_widgets(spec.params, f"adv_casas_{name}", values, help=True)
 
 
 def _render_detect_panel(source: str) -> None:
@@ -252,7 +255,7 @@ def _render_detect_panel(source: str) -> None:
         st.stop()
 
     preview_house = st.selectbox(
-        "House to visualize", houses, key=f"preview_house_{source}"
+        "House to visualize", houses, key="preview_house_casas"
     )
     scenario, intensity = _injection_config(source)
     features = _house_features_cached(source, preview_house, scenario, intensity)
@@ -266,9 +269,9 @@ def _render_detect_panel(source: str) -> None:
             "house — the scores below reflect the injected stream."
         )
 
-    if f"det_names_{source}" not in st.session_state:
-        st.session_state[f"det_names_{source}"] = list(DETECTOR_DEFAULTS_LIST)
-    selected = set(st.session_state[f"det_names_{source}"])
+    if "det_names_casas" not in st.session_state:
+        st.session_state["det_names_casas"] = list(DETECTOR_DEFAULTS_LIST)
+    selected = set(st.session_state["det_names_casas"])
 
     st.caption(
         "Score map: the line with the dark edge is each detector's **decision "
@@ -294,7 +297,6 @@ def _render_detect_panel(source: str) -> None:
                     break
                 with col:
                     _render_detector_card(
-                        source,
                         preview_house,
                         names[idx],
                         names[idx] in selected,
@@ -323,13 +325,13 @@ def _resolve_detect_config(source: str) -> dict:
         )
         st.stop()
 
-    selected = st.session_state.get(f"det_names_{source}", DETECTOR_DEFAULTS_LIST)
+    selected = st.session_state.get("det_names_casas", DETECTOR_DEFAULTS_LIST)
     detector_names = [n for n in DETECTOR_NAMES if n in selected]
 
     return {
         "houses": houses,
         "detector_names": detector_names,
-        "detector_params": _detector_params_from_session(source, detector_names),
+        "detector_params": _detector_params_from_session(detector_names),
     }
 
 
@@ -373,8 +375,8 @@ def _combine_config(source: str, detect: dict, ensemble: dict) -> dict:
 def _run_pipeline(source: str, config: dict) -> dict:
     from pipeline import run_house
 
-    results = st.session_state.get(f"results_{source}", {})
-    if st.session_state.get(f"sig_{source}") == config["signature"]:
+    results = st.session_state.get("results_casas", {})
+    if st.session_state.get("sig_casas") == config["signature"]:
         return results
 
     if not config["houses"]:
@@ -394,7 +396,7 @@ def _run_pipeline(source: str, config: dict) -> dict:
             anomaly_dates = ()
         try:
             result, error = run_house(house_id, df, **config["pipeline_kwargs"])
-        except Exception as e:  # noqa: BLE001 - fragile deps (e.g. tick) may raise
+        except Exception as e:
             result, error = None, str(e)
         if error:
             st.warning(f"[{house_id}] {error}")
@@ -402,9 +404,9 @@ def _run_pipeline(source: str, config: dict) -> dict:
             new_results[house_id] = result
             new_anom[house_id] = tuple(anomaly_dates)
 
-    st.session_state[f"sig_{source}"] = config["signature"]
-    st.session_state[f"results_{source}"] = new_results
-    st.session_state[f"anom_{source}"] = new_anom
+    st.session_state["sig_casas"] = config["signature"]
+    st.session_state["results_casas"] = new_results
+    st.session_state["anom_casas"] = new_anom
     return new_results
 
 
@@ -412,8 +414,6 @@ def _run_pipeline(source: str, config: dict) -> dict:
 # RESULT TABS
 # ============================================================================
 def _render_injected_eval(
-    source: str,
-    house_view: str,
     details: pd.DataFrame,
     anomaly_dates: tuple,
     score_cols: list[str],
@@ -440,7 +440,7 @@ def _render_injected_eval(
     holdout[split_idx:] = True
     y = np.asarray([d in set(anomaly_dates) for d in dates], dtype=int)
 
-    labels = score_cols + ["ensemble_score"]
+    labels = [*score_cols, "ensemble_score"]
     cols = st.columns(len(labels))
     for col, label in zip(cols, labels, strict=True):
         with col:
@@ -459,7 +459,7 @@ def _render_injected_eval(
 
 
 def _render_house_results(
-    source: str, house_view: str, r: Any, anomaly_dates: tuple = ()
+    house_view: str, r: Any, anomaly_dates: tuple = ()
 ) -> None:
     """Full result section for one house (houses are chosen in the Data step)."""
     details, anomalies, scores = r.details, r.anomalies, r.scores
@@ -530,11 +530,11 @@ def _render_house_results(
     apply_layout(
         fig_timeline, "Timeline: ensemble scores (red = above threshold)", height=460
     )
-    display_chart(fig_timeline, key=f"timeline_{source}_{house_view}")
+    display_chart(fig_timeline, key=f"timeline_casas_{house_view}")
     st.caption("Red = above the threshold percentile · each point = one day.")
 
     if anomaly_dates:
-        _render_injected_eval(source, house_view, details, anomaly_dates, score_cols)
+        _render_injected_eval(details, anomaly_dates, score_cols)
 
     fig_hist = go.Figure(
         go.Histogram(
@@ -548,7 +548,7 @@ def _render_house_results(
             annotation_text="threshold",
         )
     apply_layout(fig_hist, "Score Distribution", height=320)
-    display_chart(fig_hist, key=f"hist_{source}_{house_view}")
+    display_chart(fig_hist, key=f"hist_casas_{house_view}")
 
     colored_section_header("🚩", "Days flagged as anomalous", ANOMALY)
     anomalous_days = details[details["is_anomaly"] == 1].sort_values(
@@ -568,7 +568,7 @@ def _render_house_results(
             )
         )
         apply_layout(fig_corr, "Detector Agreement (higher = more aligned)", height=400)
-        display_chart(fig_corr, key=f"corr_{source}_{house_view}")
+        display_chart(fig_corr, key=f"corr_casas_{house_view}")
 
     csv_data = details.to_csv(index=False)
     st.download_button(
@@ -579,7 +579,7 @@ def _render_house_results(
     )
 
 
-def _render_anomalies_tab(results: dict, source: str) -> None:
+def _render_anomalies_tab(results: dict) -> None:
     """Ensemble results for one house at a time (all houses always computed)."""
     if not results:
         st.info(
@@ -590,11 +590,11 @@ def _render_anomalies_tab(results: dict, source: str) -> None:
     house_view = st.selectbox(
         "House to display",
         list(results.keys()),
-        key=f"anom_house_{source}",
+        key="anom_house_casas",
         help="All houses run the pipeline; this picker only chooses which one to inspect.",
     )
-    anomaly_dates = st.session_state.get(f"anom_{source}", {}).get(house_view, ())
-    _render_house_results(source, house_view, results[house_view], anomaly_dates)
+    anomaly_dates = st.session_state.get("anom_casas", {}).get(house_view, ())
+    _render_house_results(house_view, results[house_view], anomaly_dates)
 
     info_box(
         "⚡",
@@ -649,7 +649,7 @@ def _build_detector_cloud(
     x_range = (X_2d[:, 0].min() - x_margin, X_2d[:, 0].max() + x_margin)
     y_range = (X_2d[:, 1].min() - y_margin, X_2d[:, 1].max() + y_margin)
 
-    _, _, zz, threshold = score_mesh(
+    _, _, zz, _ = score_mesh(
         detector, x_range, y_range, transform=pca.inverse_transform
     )
     fig = go.Figure()
@@ -667,33 +667,11 @@ def _build_detector_cloud(
             hoverinfo="skip",
         )
     )
-    # Decision boundary: the iso-line at the detector's split threshold, drawn as
-    # plain Scatter lines (guaranteed to render) with the family-colored seam.
-    polylines = contour_polylines(zz, threshold, x_range, y_range)
-    if polylines:
-        for line_color, width in [
-            ("rgba(8, 12, 20, 0.85)", 5.0),
-            (boundary_color, 3.0),
-            ("rgba(255, 255, 255, 0.95)", 1.2),
-        ]:
-            bx: list[float | None] = []
-            by: list[float | None] = []
-            for pl in polylines:
-                bx.extend(pl[:, 0].tolist())
-                by.extend(pl[:, 1].tolist())
-                bx.append(None)
-                by.append(None)
-            fig.add_trace(
-                go.Scatter(
-                    x=bx,
-                    y=by,
-                    mode="lines",
-                    line={"color": line_color, "width": width},
-                    hoverinfo="skip",
-                    showlegend=False,
-                )
-            )
-
+    # Decision boundary via shared helper (three-layer seam)
+    for trace in render_decision_boundary(
+        detector, x_range, y_range, boundary_color, transform=pca.inverse_transform
+    ):
+        fig.add_trace(trace)
     normal_mask = y_pred == 0
     fig.add_trace(
         go.Scatter(
@@ -772,4 +750,4 @@ def render_casas_view(source: str, stage: str = "detect") -> None:
     config = _combine_config(source, detect, ensemble)
     results = _run_pipeline(source, config)
 
-    _render_anomalies_tab(results, source)
+    _render_anomalies_tab(results)

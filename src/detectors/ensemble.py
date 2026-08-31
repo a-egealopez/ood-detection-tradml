@@ -3,7 +3,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-from detectors.constants import EPSILON
+from detectors.constants import DEFAULT_ENSEMBLE_THRESHOLD_PERCENTILE, EPSILON
 
 
 class EnsembleDetector:
@@ -12,7 +12,7 @@ class EnsembleDetector:
         detectors: list | None = None,
         weights: np.ndarray = None,
         ensemble_mode: Literal["soft", "hard"] = "soft",
-        ensemble_threshold_percentile: float = 90,
+        ensemble_threshold_percentile: float = DEFAULT_ENSEMBLE_THRESHOLD_PERCENTILE,
         detector_inputs: list[np.ndarray | None] | None = None,
     ):
         """Combine per-detector scores into one anomaly verdict.

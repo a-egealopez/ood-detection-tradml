@@ -2,11 +2,11 @@ import numpy as np
 from scipy.spatial.distance import mahalanobis
 
 from detectors.base import BaseDetector
-from detectors.constants import DEFAULT_THRESHOLD_PERCENTILE, EPSILON
+from detectors.constants import DEFAULT_DETECTOR_THRESHOLD_PERCENTILE, EPSILON
 
 
 class MahalanobisDetector(BaseDetector):
-    def __init__(self, threshold_percentile: float = DEFAULT_THRESHOLD_PERCENTILE):
+    def __init__(self, threshold_percentile: float = DEFAULT_DETECTOR_THRESHOLD_PERCENTILE):
         self.threshold_percentile = threshold_percentile
         self.mean = None
         self.cov = None

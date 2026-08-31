@@ -26,7 +26,15 @@ from components import (
     colored_section_header,
     render_resources,
 )
-from data_access import apply_injection, load_all_events
+from data_access import apply_injection, get_injection_config, load_all_events
+from detectors.constants import DEFAULT_RANDOM_STATE
+from features.event_driven_extractors import (
+    IntervalStatisticsExtractor,
+    NextEventTransitionExtractor,
+    NGramTransitionExtractor,
+    WindowAggregationExtractor,
+    generate_synthetic_events,
+)
 from theme import (
     ANOMALY,
     ANOMALY_SOFT,
@@ -37,14 +45,6 @@ from theme import (
     TEXT,
     apply_layout,
     display_chart,
-)
-
-from features.event_driven_extractors import (
-    IntervalStatisticsExtractor,
-    NextEventTransitionExtractor,
-    NGramTransitionExtractor,
-    WindowAggregationExtractor,
-    generate_synthetic_events,
 )
 
 METHOD_DESCRIPTIONS = {
@@ -301,6 +301,39 @@ METHOD_CARDS = {
 }
 
 
+# One-line didactic meaning per feature, keyed by the feature names of each
+# extractor (``FEATURE_NAMES``), so the example vector is readable at a glance.
+FEATURE_MEANINGS = {
+    "Window Aggregation": {
+        "n_events": "Events triggered that day",
+        "n_sensors": "Distinct sensors that fired",
+        "activity_hours": "Distinct hours with activity",
+        "avg_gap_minutes": "Mean time between consecutive events (min)",
+        "night_activity_ratio": "Share of events during night (22h-8h)",
+        "entropy_hourly": "How spread the activity is across 24 hours (bits); higher = more irregular rhythm",
+        "entropy_sensor": "How balanced the sensor usage is (bits); uniform use = maximum",
+    },
+    "Inter-Event Interval (IEI)": {
+        "n_events": "Events triggered that day",
+        "mean_iei_sec": "Mean gap between consecutive events (s)",
+        "std_iei_sec": "Spread of the gaps (s)",
+        "cv_iei": "Coefficient of variation (std/mean); rhythm regularity",
+        "fano_factor": "Variance/mean of counts in 30-min bins; > 1 = bursty",
+    },
+    "N-gram Transition (Markov)": {
+        "n_transitions": "Consecutive transitions that day (events - 1)",
+        "transition_entropy": "Uncertainty of the next sensor (bits); low = predictable sequence",
+        "top_transition_prob": "Probability of the most common transition",
+        "unique_bigrams_ratio": "Fraction of possible sensor bigrams actually used",
+    },
+    "Next-Event Prediction (Markov)": {
+        "mean_logprob": "Mean log-likelihood of the day's transitions; low = atypical day",
+        "min_logprob": "Most unlikely single transition of the day",
+        "rare_transition_rate": "Share of transitions flagged 'rare' (2σ below the training mean)",
+    },
+}
+
+
 # ============================================================================
 # Inspector helpers (synthetic pattern picker lives with the Data step)
 # ============================================================================
@@ -451,7 +484,7 @@ def _plot_ngram_transition(diag: dict) -> tuple[go.Figure, go.Figure]:
 
 
 def _plot_next_event(
-    group: pd.DataFrame, diag: dict
+    diag: dict
 ) -> tuple[go.Figure, go.Figure]:
     seq = diag["sequence"]
     tokens = seq[:40]
@@ -521,18 +554,17 @@ def _load_stream(data_source: str) -> pd.DataFrame:
             pattern="regular",
             n_sensors=int(st.session_state.get("fx_sensors", 3)),
             events_per_day=int(st.session_state.get("fx_events_day", 80)),
-            seed=42,
+            seed=DEFAULT_RANDOM_STATE,
         )
-        scenario = st.session_state.get("fx_scenario", "control")
+        scenario, intensity = get_injection_config()
         if scenario != "control":
-            intensity = st.session_state.get("fx_scenario_intensity", "medium")
             df, _ = apply_injection(df, scenario, intensity)
         return df
 
     df: pd.DataFrame | None = None
     try:
         df = load_all_events()
-    except Exception as e:  # noqa: BLE001 - DB may be missing until ingestion runs
+    except Exception as e:
         st.error(f"Could not load the database: {e}")
         st.stop()
 
@@ -542,18 +574,17 @@ def _load_stream(data_source: str) -> pd.DataFrame:
         )
         st.stop()
 
-    assert df is not None
+    real: pd.DataFrame = df
     max_days = int(st.session_state.get("fx_days_real", 10))
-    timestamps = pd.to_datetime(df["timestamp"])
+    timestamps = pd.to_datetime(real["timestamp"])
     dates = sorted(timestamps.dt.date.unique())[:max_days]
-    return df[timestamps.dt.date.isin(dates)]
+    return real[timestamps.dt.date.isin(dates)]
 
 
 def _recap_stream(data_source: str) -> None:
     """One-line recap of the data currently inspected (configured in Data)."""
     if data_source == "Synthetic":
-        scenario = st.session_state.get("fx_scenario", "control")
-        intensity = st.session_state.get("fx_scenario_intensity", "medium")
+        scenario, intensity = get_injection_config()
         scenario_txt = (
             f"scenario *{scenario}* ({intensity})" if scenario != "control" else "control (nothing injected)"
         )
@@ -569,6 +600,118 @@ def _recap_stream(data_source: str) -> None:
             f"Real data read from the database: first "
             f"{st.session_state.get('fx_days_real', 10)} days (configured in the Data step)."
         )
+
+
+# ============================================================================
+# Didactic feature vector example (shown under the method schematic)
+# ============================================================================
+def _example_streams(data_source: str) -> tuple[pd.DataFrame, pd.DataFrame, tuple]:
+    """Build the clean and injected streams for the didactic example.
+
+    Mirrors ``_load_stream`` using the Data-step configuration, so the example
+    numbers match the inspector below. Returns ``(normal, injected,
+    anomalous_dates)``; ``anomalous_dates`` is empty under the "control" scenario.
+    """
+    if data_source == "Synthetic":
+        normal = generate_synthetic_events(
+            n_days=int(st.session_state.get("fx_days", 4)),
+            pattern="regular",
+            n_sensors=int(st.session_state.get("fx_sensors", 3)),
+            events_per_day=int(st.session_state.get("fx_events_day", 80)),
+            seed=DEFAULT_RANDOM_STATE,
+        )
+    else:
+        real: pd.DataFrame | None = None
+        try:
+            real = load_all_events()
+        except Exception as e:
+            st.error(f"Could not load the database: {e}")
+            st.stop()
+        if real is None or real.empty:
+            st.warning(
+                "The database is empty. Run first `python src/ingestion/casas_loader.py`."
+            )
+            st.stop()
+        events: pd.DataFrame = real
+        max_days = int(st.session_state.get("fx_days_real", 10))
+        timestamps = pd.to_datetime(events["timestamp"])
+        dates = sorted(timestamps.dt.date.unique())[:max_days]
+        normal = events[timestamps.dt.date.isin(dates)].copy()
+
+    scenario, intensity = get_injection_config()
+    injected, anomalous_dates = apply_injection(normal, scenario, intensity)
+    return normal, injected, anomalous_dates
+
+
+def _vector_for_day(extractor, df: pd.DataFrame, day) -> list[float]:
+    """Feature vector produced by ``extractor`` for a single ``day``."""
+    X, dates = extractor.extract(df)
+    for row, d in zip(X, dates, strict=True):
+        if d == day:
+            return [float(value) for value in row]
+    return [0.0] * len(extractor.FEATURE_NAMES)
+
+
+def _render_example_vector(data_source: str, method: str) -> None:
+    """Compact 'example feature vector' panel next to the method schematic.
+
+    Shows the selected extractor's feature names with a real vector for one day,
+    computed both on the clean stream and (when an anomaly is injected in the Data
+    step) on the injected stream, so the reader sees how the anomaly moves the numbers.
+    """
+    normal, injected, anomalous_dates = _example_streams(data_source)
+    scenario, _ = get_injection_config()
+
+    if method == "Window Aggregation":
+        extractor = WindowAggregationExtractor()
+    elif method == "Inter-Event Interval (IEI)":
+        extractor = IntervalStatisticsExtractor()
+    elif method == "Next-Event Prediction (Markov)":
+        extractor = NextEventTransitionExtractor()
+        extractor.fit(injected)
+    else:
+        extractor = NGramTransitionExtractor()
+        extractor.fit_vocabulary(injected)
+
+    if scenario != "control" and anomalous_dates:
+        example_day = anomalous_dates[0]
+    else:
+        example_day = sorted(pd.to_datetime(normal["timestamp"]).dt.date.unique())[0]
+
+    normal_vec = _vector_for_day(extractor, normal, example_day)
+    injected_vec = _vector_for_day(extractor, injected, example_day)
+    meanings = FEATURE_MEANINGS.get(method, {})
+
+    rows = []
+    for i, name in enumerate(extractor.FEATURE_NAMES):
+        row: dict = {"Feature": name, "Meaning": meanings.get(name, "")}
+        if i < len(normal_vec):
+            row["Normal day"] = round(float(normal_vec[i]), 3)
+        if scenario != "control" and i < len(injected_vec):
+            row["Injected day"] = round(float(injected_vec[i]), 3)
+            row["Δ"] = round(abs(float(injected_vec[i]) - float(normal_vec[i])), 3)
+        rows.append(row)
+
+    st.markdown("#### 🎯 Example feature vector")
+    if scenario != "control":
+        base = (
+            f"Day **{example_day}** on the clean stream vs the same day after a "
+            f"**{scenario}** anomaly was injected in the Data step. "
+            "Δ = |injected − normal|."
+        )
+        if scenario == "collective":
+            base += (
+                " A collective reversal keeps the hourly totals, so only the "
+                "order-based column (… *Next-Event*) moves; the count summaries stay put."
+            )
+        st.caption(base)
+    else:
+        st.caption(
+            f"Day **{example_day}** on the clean stream. The Data step is on "
+            "'control' (nothing injected), so this is the vector the extractor produces "
+            "from that day's raw events."
+        )
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
 def _render_inspector(data_source: str, method_name: str) -> None:
@@ -617,7 +760,7 @@ def _render_inspector(data_source: str, method_name: str) -> None:
         elif method_name == "Inter-Event Interval (IEI)":
             fig_a, fig_b = _plot_interval_statistics(group, diag)
         elif method_name == "Next-Event Prediction (Markov)":
-            fig_a, fig_b = _plot_next_event(group, diag)
+            fig_a, fig_b = _plot_next_event(diag)
         else:
             fig_a, fig_b = _plot_ngram_transition(diag)
 
@@ -692,6 +835,7 @@ def render_feature_extraction_view() -> None:
     method = clickable_cards(method_specs, key="fx_method")
 
     display_chart(_method_schematic(method), key=f"fx_schematic_{method}")
+    _render_example_vector(data_source, method)
     render_resources(method)
 
     st.markdown("---")

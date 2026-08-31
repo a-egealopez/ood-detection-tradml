@@ -1,6 +1,13 @@
 import logging
 from pathlib import Path
 
+# Shared low-level constants. They live here (a package with no dependencies) so
+# both ``features`` and ``detectors`` can import them without triggering a
+# circular import (detectors/sequential/markov_sequence_detector imports from
+# ``features``, so ``features`` must never import the ``detectors`` package).
+EPSILON = 1e-8
+DEFAULT_RANDOM_STATE = 42
+
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 LOGS_DIR = PROJECT_ROOT / "logs"
@@ -9,6 +16,9 @@ LOG_LEVEL = "INFO"
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 HOUSES = ("aruba", "cairo", "milan", "tulum")
+
+# Minimum days a house must have before it can be scored by the pipeline.
+MIN_DAYS = 10
 
 SOURCES = ("real", "synthetic")
 REAL_DATA_DIR = DATA_DIR / "real"

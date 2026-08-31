@@ -6,21 +6,9 @@ numeric-looking strings (e.g. "0.5") become floats.
 """
 
 import contextlib
-from typing import Protocol
+from typing import Any
 
-import numpy as np
-
-
-class Detector(Protocol):
-    """Common detector interface (fit + predict returning (binary, scores))."""
-
-    def fit(self, X: np.ndarray) -> "Detector":
-        ...
-
-    def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        ...
-
-
+from .base import BaseDetector
 from .sequential.hawkes_detector import HawkesDetector
 from .sequential.hmm_detector import HMMDetector
 from .sequential.markov_sequence_detector import MarkovSequenceDetector
@@ -36,55 +24,49 @@ from .vectorial import (
     ZScoreDetector,
 )
 
-DETECTOR_FACTORY: dict[str, type[Detector]] = {
-    "Isolation Forest": IsolationForestDetector,
-    "Extended IForest": IsolationForestDetector,
-    "Mahalanobis": MahalanobisDetector,
-    "Elliptic Envelope": EllipticEnvelopeDetector,
-    "Robust Covariance": RobustCovarianceDetector,
-    "KNN": KNNDetector,
-    "OC-SVM (RBF)": OCSVMDetector,
-    "OC-SVM (Linear)": OCSVMDetector,
-    "OC-SVM (Poly)": OCSVMDetector,
-    "LOF": LOFDetector,
-    "Z-Score": ZScoreDetector,
-    "PCA Reconstruction": PCAReconstructionDetector,
-    "HMM": HMMDetector,
-    "Hawkes": HawkesDetector,
-    "Markov Sequence": MarkovSequenceDetector,
+_DETECTOR_MAP: dict[str, tuple[type[BaseDetector], dict]] = {
+    "Isolation Forest": (IsolationForestDetector, {}),
+    "Extended IForest": (IsolationForestDetector, {"sliced_path": True}),
+    "Mahalanobis": (MahalanobisDetector, {}),
+    "Elliptic Envelope": (EllipticEnvelopeDetector, {}),
+    "Robust Covariance": (RobustCovarianceDetector, {}),
+    "KNN": (KNNDetector, {}),
+    "OC-SVM (RBF)": (OCSVMDetector, {"kernel": "rbf"}),
+    "OC-SVM (Linear)": (OCSVMDetector, {"kernel": "linear"}),
+    "OC-SVM (Poly)": (OCSVMDetector, {"kernel": "poly"}),
+    "LOF": (LOFDetector, {}),
+    "Z-Score": (ZScoreDetector, {}),
+    "PCA Reconstruction": (PCAReconstructionDetector, {}),
+    "HMM": (HMMDetector, {}),
+    "Hawkes": (HawkesDetector, {}),
+    "Markov Sequence": (MarkovSequenceDetector, {}),
 }
 
-# Parameters that are fixed per named detector (drives UI variants of one class,
-# e.g. One-Class SVM by kernel). Merged into every instance after the user params.
-FIXED_PARAMS: dict[str, dict] = {
-    "OC-SVM (RBF)": {"kernel": "rbf"},
-    "OC-SVM (Linear)": {"kernel": "linear"},
-    "OC-SVM (Poly)": {"kernel": "poly"},
-    "Extended IForest": {"sliced_path": True},
-}
+# Derived: name -> class (for backward compat / inspection)
+DETECTOR_FACTORY: dict[str, type[BaseDetector]] = {k: v[0] for k, v in _DETECTOR_MAP.items()}
 
 
-def build_detector(name: str, params: dict) -> Detector:
+def _coerce_param(value: Any) -> Any:
+    """Cast float integers to int; parse numeric strings to float."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str):
+        with contextlib.suppress(ValueError):
+            return float(value)
+    return value
+
+
+def build_detector(name: str, params: dict) -> BaseDetector:
     """Instantiate a detector by display name with the given parameter kwargs."""
-    if name not in DETECTOR_FACTORY:
+    if name not in _DETECTOR_MAP:
         raise ValueError(f"Unknown detector: {name!r}")
 
-    detector_cls = DETECTOR_FACTORY[name]
-    kwargs = {}
-    for key, value in params.items():
-        # Sliders return floats; integer parameters need casting back to int.
-        if isinstance(value, float) and float(value).is_integer():
-            value = int(value)
-        # Selectbox string params that encode a number (e.g. max_samples="0.5")
-        # become real floats so sklearn receives the numeric value.
-        elif isinstance(value, str):
-            with contextlib.suppress(ValueError):
-                value = float(value)
-        kwargs[key] = value
-    kwargs.update(FIXED_PARAMS.get(name, {}))
+    detector_cls, fixed = _DETECTOR_MAP[name]
+    kwargs = {k: _coerce_param(v) for k, v in params.items()}
+    kwargs.update(fixed)
     return detector_cls(**kwargs)
 
 
-def build_detectors(names: list[str], params_by_detector: dict) -> list[Detector]:
+def build_detectors(names: list[str], params_by_detector: dict) -> list[BaseDetector]:
     """Build one detector per display name, passing each its configured params."""
     return [build_detector(name, params_by_detector.get(name, {})) for name in names]

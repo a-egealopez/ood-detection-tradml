@@ -10,10 +10,9 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from config import DB_PATH, db_path
+from detectors.constants import DEFAULT_CONTAMINATION, DEFAULT_RANDOM_STATE, DEFAULT_TRAIN_SPLIT
 from evaluation.event_injection import (
-    COLLECTIVE_INTENSITIES,
-    CONTEXTUAL_INTENSITIES,
-    POINT_INTENSITIES,
+    INTENSITY_PRESETS,
     inject_collective_events,
     inject_contextual_events,
     inject_point_events,
@@ -26,17 +25,10 @@ from ingestion.sqlite_manager import SQLiteDataManager
 # the raw event stream at the chosen intensity.
 INJECTION_SCENARIOS = ("control", "point", "contextual", "collective")
 
-# Preset intensity levels -> injector parameter, matching the CLI evaluation.
-INJECTION_INTENSITIES = {
-    "point": POINT_INTENSITIES,
-    "contextual": CONTEXTUAL_INTENSITIES,
-    "collective": COLLECTIVE_INTENSITIES,
-}
-
 # Fixed split / contamination so the app mirrors the CLI matrix evaluation.
-INJECTION_TRAIN_SPLIT = 0.7
-INJECTION_CONTAMINATION = 0.25
-INJECTION_SEED = 42
+INJECTION_TRAIN_SPLIT = DEFAULT_TRAIN_SPLIT
+INJECTION_CONTAMINATION = DEFAULT_CONTAMINATION
+INJECTION_SEED = DEFAULT_RANDOM_STATE
 
 
 def apply_injection(
@@ -69,7 +61,7 @@ def apply_injection(
     n_anomaly = max(1, round(len(holdout_dates) * INJECTION_CONTAMINATION))
     anomaly_dates = select_anomaly_dates(holdout_dates, rng, n_anomaly)
 
-    intensity = INJECTION_INTENSITIES[scenario][intensity_level]
+    intensity = INTENSITY_PRESETS[scenario][intensity_level]
     rng_inject = np.random.default_rng(seed)
     if scenario == "point":
         df_inj = inject_point_events(df, rng_inject, intensity, anomaly_dates)
@@ -78,6 +70,17 @@ def apply_injection(
     else:
         df_inj = inject_collective_events(df, rng_inject, intensity, anomaly_dates)
     return df_inj, tuple(sorted(anomaly_dates))
+
+
+def get_injection_config() -> tuple[str, str]:
+    """Returns ``(scenario, intensity)`` from session_state with defaults.
+
+    The scenario/intensity are chosen in the Data step (synthetic track) and
+    shared by the Features step and the CASAS Detect step.
+    """
+    scenario = st.session_state.get("fx_scenario", "control")
+    intensity = st.session_state.get("fx_scenario_intensity", "medium")
+    return scenario, intensity
 
 
 @st.cache_data(show_spinner=False)

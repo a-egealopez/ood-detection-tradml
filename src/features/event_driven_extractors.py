@@ -1,23 +1,14 @@
 """
-event_driven_extractors.py
+Per-window (daily) feature extractors for event-based time series.
 
-Feature-vector extraction for event-based time series (IoT sensor ON/OFF events,
-activity logs), aggregated per window (by default: one day).
+Three extractors, each targeting different anomaly types (Chandola et al., 2009
+survey taxonomy): point, contextual, collective/sequence.
 
-Three extractors, each targeting different anomaly types under the standard
-taxonomy of Chandola, Banerjee & Kumar, "Anomaly Detection: A Survey" (ACM
-Computing Surveys, 2009): point, contextual, and collective. Sequence anomalies
-follow Chandola et al., "Anomaly Detection for Discrete Sequences: A Survey"
-(IEEE TKDE, 2012).
+1. WindowAggregationExtractor   -> contextual + collective (day level)
+2. IntervalStatisticsExtractor  -> point (raw intervals) or collective (per window)
+3. NGramTransitionExtractor     -> collective/sequence (pattern-based)
 
-1. WindowAggregationExtractor -> CONTEXTUAL + COLLECTIVE (day level)
-2. IntervalStatisticsExtractor -> POINT (raw intervals) or COLLECTIVE (per window)
-3. NGramTransitionExtractor -> COLLECTIVE / SEQUENCE (pattern-based)
-
-All share the same interface: extract(df) -> (X, dates) and
-diagnostics(group) -> dict with the intermediate values needed to plot how the
-feature vector of a specific window was computed. See each class docstring for
-the anomaly-type rationale.
+Uniform interface: extract(df) -> (X, dates) and diagnostics(group) -> dict.
 """
 
 import itertools
@@ -26,15 +17,16 @@ from typing import ClassVar
 import numpy as np
 import pandas as pd
 
+from config import DEFAULT_RANDOM_STATE
 from features.common import EPSILON, daily_aggregates, entropy, extract_by_date
+from ingestion.markov_generator import NOISE
 
 
 class WindowAggregationExtractor:
-    """Classic statistical per-window aggregation (tumbling window).
+    """Statistical per-window aggregation.
 
-    Anomaly type: CONTEXTUAL (the hour/time-band context is encoded in the
-    features) + COLLECTIVE at day level (the vector summarizes the whole day).
-    Not suited for point anomalies (a single rare event inside a normal day).
+    Anomaly type: contextual (hour context encoded in features) + collective at
+    day level. Not suited to point anomalies (one rare event in a normal day).
     """
 
     FEATURE_NAMES: ClassVar[list[str]] = [
@@ -78,11 +70,10 @@ class WindowAggregationExtractor:
 
 
 class IntervalStatisticsExtractor:
-    """Interval statistics between consecutive events (point-process / renewal process).
+    """Interval statistics between consecutive events (point-process / renewal).
 
-    Anomaly type: POINT if the raw intervals are used (``diagnostics()``),
-    COLLECTIVE if the per-window aggregate vector produced by ``extract()`` is used
-    (mean/CV/Fano factor describe the "rhythm" of the whole day, not an instant).
+    Anomaly type: point if raw intervals are used (``diagnostics()``), collective
+    if the per-window aggregate from ``extract()`` is used.
     """
 
     FEATURE_NAMES: ClassVar[list[str]] = [
@@ -142,11 +133,10 @@ class IntervalStatisticsExtractor:
 
 
 class NGramTransitionExtractor:
-    """First-order Markov chain over the temporal sequence of triggered sensors.
+    """First-order Markov chain over the sequence of triggered sensors.
 
-    Anomaly type: COLLECTIVE of the sequence kind (pattern-based). It only looks
-    at the order of events, not their instant or magnitude, so it cannot detect
-    point or pure contextual anomalies.
+    Anomaly type: collective/sequence (pattern-based). Only looks at event order,
+    so it cannot detect point or pure contextual anomalies.
     """
 
     FEATURE_NAMES: ClassVar[list[str]] = [
@@ -156,7 +146,7 @@ class NGramTransitionExtractor:
         "unique_bigrams_ratio",
     ]
 
-    def __init__(self, token_col: str = "sensor_id"):
+    def __init__(self, token_col: str = "sensor_id"):  # noqa: S107
         self.token_col = token_col
         self.vocabulary_: list[str] = []
 
@@ -221,22 +211,16 @@ class NGramTransitionExtractor:
 
 
 class NextEventTransitionExtractor:
-    """First-order Markov *prediction* of the next triggered sensor.
+    """First-order Markov *prediction* of the next sensor.
 
-    Type of anomaly: POINT (single-event) + COLLECTIVE at day level.
+    Anomaly type: point (single event) + collective at day level. Unlike
+    ``NGramTransitionExtractor`` (which summarizes a day into an entropy), this
+    learns a transition-probability matrix from normal behavior and scores each
+    real transition by its log-likelihood (DeepLog-style), so one unlikely step in
+    an otherwise normal day is not diluted by aggregation.
 
-    Where ``NGramTransitionExtractor`` summarizes a whole day into an entropy, this
-    extractor learns a transition *probability* matrix from the normal behavior and
-    scores each actual transition against it, the way the anomaly-detection
-    literature does for log/event sequences (DeepLog and the classic n-gram /
-    language-model baseline it builds on). A transition that the model considers
-    very unlikely flags the event, so a single rare step inside an otherwise normal
-    day is not diluted away by aggregation.
-
-    Method: fit the maximum-likelihood transition matrix ``P(b|a)`` with additive
-    (Laplace) smoothing so unseen transitions never get probability exactly 0, then
-    for each day take the negative log-likelihood of its real transitions as the
-    anomaly signal.
+    Fit uses ML estimation with Laplace smoothing (no zero probabilities); the day
+    signal is the negative log-likelihood of its real transitions.
     """
 
     FEATURE_NAMES: ClassVar[list[str]] = [
@@ -245,14 +229,12 @@ class NextEventTransitionExtractor:
         "rare_transition_rate",
     ]
 
-    # A transition is "rare" when its log-likelihood falls more than this many
-    # standard deviations below the mean log-likelihood of the training
-    # transitions. Relative (not absolute) so it works for any vocabulary size.
+    # Relative (not absolute) so it works for any vocabulary size.
     RARE_Z: ClassVar[float] = 2.0
-    # Laplace smoothing constant: one pseudo-count per (source, target) pair.
+    # One pseudo-count per (source, target) pair.
     LAPLACE_ALPHA: ClassVar[float] = 1.0
 
-    def __init__(self, token_col: str = "sensor_id"):
+    def __init__(self, token_col: str = "sensor_id"):  # noqa: S107
         self.token_col = token_col
         self.prob_matrix_: pd.DataFrame | None = None
         self.rare_threshold_: float | None = None
@@ -342,25 +324,43 @@ class NextEventTransitionExtractor:
         }
 
 
+def sensor_chain_probabilities(n_sensors: int) -> np.ndarray:
+    """First-order transition matrix: asymmetric directed cycle (``i -> i+1`` dominant).
+
+    Asymmetry makes a reversed day (collective injector) produce rare transitions;
+    a symmetric stream would be indistinguishable after reversal. Falls back to
+    uniform for ``n_sensors < 3`` (a cycle needs three states).
+    """
+    if n_sensors < 3:
+        return np.full((n_sensors, n_sensors), 1.0 / n_sensors)
+    weights = np.ones((n_sensors, n_sensors))
+    for i in range(n_sensors):
+        weights[i, i] = 5.0
+        weights[i, (i + 1) % n_sensors] = 25.0
+        weights[i, (i - 1) % n_sensors] = 2.0
+    probs = weights / weights.sum(axis=1, keepdims=True)
+    return (1.0 - NOISE) * probs + NOISE / n_sensors
+
+
 def generate_synthetic_events(
     n_days: int = 5,
     pattern: str = "regular",
     n_sensors: int = 3,
     events_per_day: int = 80,
-    seed: int = 42,
+    seed: int = DEFAULT_RANDOM_STATE,
 ) -> pd.DataFrame:
-    """
-    Generate a synthetic event stream with the same schema as CASAS Aruba
-    (timestamp, sensor_id, event_type, value), to illustrate the extractors
-    without depending on the real database.
+    """Synthetic event stream in CASAS-Aruba schema (no DB needed).
 
-    pattern:
-        "regular"   -> nearly equally spaced events (periodic process with small jitter)
-        "bursty"    -> events concentrated in a few temporal clusters ("bursty" process)
-        "day_night" -> most events during daytime hours, few at night
+    Sensors are drawn from an asymmetric first-order Markov chain (see
+    ``sensor_chain_probabilities``) so the sequence extractors have structure to
+    learn and a reversal produces rare transitions.
+
+    pattern: "regular" (evenly spaced), "bursty" (temporal clusters), or
+    "day_night" (mostly daytime).
     """
     rng = np.random.default_rng(seed)
     sensors = [f"Sensor_{i + 1}" for i in range(n_sensors)]
+    transition_probs = sensor_chain_probabilities(n_sensors)
     base_day = pd.Timestamp("2024-01-01")
     records = []
 
@@ -394,7 +394,11 @@ def generate_synthetic_events(
 
         offsets = np.clip(offsets, 0, 24 * 60 - 0.01)
         timestamps = [day_start + pd.Timedelta(minutes=float(minutes)) for minutes in offsets]
-        chosen_sensors = rng.choice(sensors, size=len(timestamps))
+        seq = np.empty(len(timestamps), dtype=int)
+        seq[0] = int(rng.integers(0, n_sensors))
+        for i in range(1, len(timestamps)):
+            seq[i] = int(rng.choice(n_sensors, p=transition_probs[seq[i - 1]]))
+        chosen_sensors = [sensors[int(i)] for i in seq]
         event_types = rng.choice(["ON", "OFF"], size=len(timestamps))
 
         for timestamp, sensor, event_type in zip(

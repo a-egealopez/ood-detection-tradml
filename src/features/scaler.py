@@ -23,19 +23,3 @@ class FeatureScaler:
     def fit_transform(self, X: np.ndarray) -> np.ndarray:
         self.fit(X)
         return self.transform(X)
-
-
-if __name__ == "__main__":
-    np.random.seed(42)
-    X = np.random.randn(100, 5) * 10 + 50
-
-    scaler = FeatureScaler()
-    X_scaled = scaler.fit_transform(X)
-
-    print(f"Mean after scaling: {X_scaled.mean(axis=0).round(4)}")
-    print(f"Std after scaling:   {X_scaled.std(axis=0).round(4)}")
-
-    assert np.allclose(X_scaled.mean(axis=0), 0, atol=1e-6)
-    assert np.allclose(X_scaled.std(axis=0), 1, atol=1e-6)
-
-    print("All validations passed")

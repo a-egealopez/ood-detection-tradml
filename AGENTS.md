@@ -53,19 +53,23 @@ ood-detection-tradml/
 │       ├── feature_extraction_view.py  # Didactic view of the 3 event-driven extractors
 │       └── casas_view.py               # CASAS track: sidebar config + auto-run + result tabs
 ├── src/                        # Library code (importable as top-level package via src/ on sys.path)
-│   ├── config.py               # Paths, house/source constants, logging setup
+│   ├── config.py               # Paths, house/source constants, logging setup; also the single
+│   │                           #   source for EPSILON+DEFAULT_RANDOM_STATE (no-dep layer so both
+│   │                           #   features and detectors import them without a circular import)
 │   ├── pipeline.py             # CASAS anomaly pipeline (extract, scale, ensemble, evaluate)
 │   ├── detectors/
 │   │   ├── __init__.py         # Public API: 12 detectors + EnsembleDetector
 │   │   ├── factory.py          # Detector factory: name -> class, build_detector(s)
 │   │   ├── ensemble.py         # EnsembleDetector (soft / hard voting)
 │   │   ├── base.py             # BaseDetector: shared fit/predict boilerplate
-│   │   ├── constants.py        # Shared constants (EPSILON, random_state, labels...)
+│   │   ├── constants.py        # Shared detector constants (labels, threshold percentiles,
+│   │   │                       #   train_split, contamination); re-exports EPSILON/DEFAULT_RANDOM_STATE
+│   │   │                       #   from config.py (single source)
 │   │   ├── vectorial/          # ZScore, IsolationForest, ExtendedIForest, Mahalanobis,
 │   │   │                       # EllipticEnvelope, RobustCovariance, KNN, OC-SVM, LOF,
 │   │   │                       # PCAReconstruction, classical_gaussian.py (MCD fallback)
 │   │   └── sequential/         # HMMDetector, HawkesDetector, MarkovSequenceDetector
-│   ├── features/               # common.py (entropy, EPSILON), scaler.py, temporal_features.py (pipeline), event_driven_extractors.py (didactic)
+│   ├── features/               # common.py (entropy, daily_aggregates; EPSILON re-exported from config), scaler.py, temporal_features.py (pipeline), event_driven_extractors.py (didactic)
 │   ├── evaluation/             # metrics.py, event_injection.py (point/contextual/collective + control), matrix_evaluation.py
 │   ├── ingestion/              # casas_loader.py (CLI CSV->SQLite), sqlite_manager.py, markov_generator.py (synthetic streams)
 │   └── teaching/               # datasets.py (synthetic 2-D), visualization.py (plotly helpers)
@@ -73,8 +77,12 @@ ood-detection-tradml/
 │   ├── run.sh / run.bat        # venv bootstrap + load data + launch app
 │   ├── run_evaluation.py       # CLI: evaluate detectors per house -> CSV report
 │   ├── run_matrix.py           # CLI: anomaly-type x intensity x detector matrix (coherent-anomaly evaluation)
-│   ├── verify_pipeline.py      # end-to-end DoD gates (generator, injectors, detectors, matrix)
+│   ├── verify_pipeline.py      # end-to-end DoD gates (runs pytest + matrix, exit != 0 on failure)
 │   └── generate_test_fixtures.py  # Generate synthetic CASAS-style CSVs into data/synthetic/
+├── tests/                      # pytest suite (extracted from src/ `__main__` blocks)
+│   ├── conftest.py             # shared fixtures (Markov stream, house stream, samples)
+│   ├── unit/                   # fast property tests (detectors, injectors, generator, scaler, ...)
+│   └── functional/             # acceptance criteria / behavior (burst, regime change, reversal, smoke)
 ├── data/                       # gitignored: real/, synthetic/, *.db (generated at runtime)
 ├── logs/                       # gitignored: app.log
 ├── .gitattributes              # *.py text eol=lf — keep line endings normalized
@@ -116,6 +124,13 @@ def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
   by log-likelihood, so a single unlikely next-sensor flags a point anomaly; the
   "predict the next event and flag deviations" family from DeepLog / Chandola et al.).
   Each exposes `extract(df) -> (X, dates)` and `diagnostics(group)`.
+- The didactic generator `generate_synthetic_events` now draws sensors from an **asymmetric
+  first-order Markov chain** (`sensor_chain_probabilities`, directed cycle `i → i+1`
+  dominant, backward edge rare), so a collective reversal produces rare transitions and
+  the order detectors have structure to learn. Caveat: `NGramTransitionExtractor`'s
+  day-level features are invariant to an *exact* intra-day reversal (they depend only on
+  the multiset of per-pair counts); the collective contrast shows in
+  `NextEventTransitionExtractor` instead.
 - Known overlap: `WindowAggregationExtractor` largely duplicates `TemporalFeatureExtractor`.
   Consolidating them is a roadmap candidate.
 
@@ -166,7 +181,8 @@ definitions and the measured matrix):
 | Launch app only (deps ready) | `PYTHONPATH=src streamlit run app/streamlit_app.py` |
 | CLI evaluation | `python scripts/run_evaluation.py --source real` (add `--extractor next_event` to use the Markov next-event extractor instead of the 9-feature temporal one) |
 | Matrix evaluation | `python scripts/run_matrix.py --source synthetic` (writes per-seed matrix + aggregated pivot to CSV) |
-| Verify pipeline gates | `python scripts/verify_pipeline.py` (all DoD gates: generator, injectors, detectors, matrix; exit ≠ 0 on failure) |
+| Verify pipeline gates | `python scripts/verify_pipeline.py` (all DoD gates: runs pytest over generator/injector/detector tests + matrix; exit ≠ 0 on failure) |
+| Run tests | `venv/bin/python -m pytest` (unit + functional suites under `tests/`) |
 | Generate synthetic data | `python scripts/generate_test_fixtures.py` |
 | Load CASAS data to SQLite | `python src/ingestion/casas_loader.py --source real\|synthetic` |
 
@@ -218,8 +234,16 @@ Priorities are indicative; update this list as work progresses.
    only the timeline (no PCA-plane score map) with an explanatory caption.
 4. **CLI/UX parity**: done — ZScore and PCAReconstruction exposed in the UI via the
    unified `DETECTOR_REGISTRY` (`app/streamlit_config.py` + `src/detectors/factory.py`).
-5. **Tests**: add unit tests for metrics, synthetic injection, feature extractors, and each
-   detector; wire into `pytest` and CI.
+5. **Tests**: done — the self-validation `__main__` blocks (previously DoD gates) and the
+   smoke/demo blocks were extracted from `src/` into a pytest suite under `tests/`
+   (`unit/` for fast property tests, `functional/` for behavioral acceptance criteria),
+   with shared fixtures in `conftest.py`. `pytest` is a dev dependency; `tests` are
+   excluded from pyright's strict checking (tests deliberately poke private helpers like
+   `_assert_unit_range`) and have `S101` disabled via `[tool.ruff.lint.per-file-ignores]`.
+   `scripts/verify_pipeline.py` now runs the generator/injector/detector gates by invoking
+   pytest over `tests/…/test_{markov_generator,injectors,hmm,hawkes,markov_sequence}*.py`
+   instead of running each module's `__main__` as a subprocess; the matrix gates are
+   unchanged. CI wiring is still pending.
 6. **README**: write a proper project README (currently missing) once the refactor
    stabilizes.
 7. **Cleanup**: done — `DETECTOR_*` config unified into a single `DETECTOR_REGISTRY`
@@ -229,7 +253,10 @@ Priorities are indicative; update this list as work progresses.
 8. **Language pass**: convert remaining Spanish comments/docstrings to English.
 9. **Detector-stack consolidation**: done — HMM score normalization unified to the canonical
    `(score_min, score_max)` convention; NaN guard added at the `as_float_array` choke point;
-   percentile family centralized (`DEFAULT_THRESHOLD_PERCENTILE`, `contamination_percentile`);
+   percentile family centralized (`DEFAULT_DETECTOR_THRESHOLD_PERCENTILE`,
+   `DEFAULT_ENSEMBLE_THRESHOLD_PERCENTILE`, `contamination_percentile`, plus
+   `DEFAULT_TRAIN_SPLIT`/`DEFAULT_CONTAMINATION`; EPSILON + DEFAULT_RANDOM_STATE
+   single-sourced in `config.py`);
    `hmmlearn`/`pyod` made lazy; MCD detectors (EllipticEnvelope, RobustCovariance) fall back
    to a classical Gaussian on degenerate input (`vectorial/classical_gaussian.py`); teaching
    track gained overlays for OC-SVM (decision boundary), Z-Score (axis-aligned band),

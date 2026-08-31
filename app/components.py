@@ -1,8 +1,15 @@
 """Reusable Streamlit UI building blocks shared by all views."""
 
+import logging
+from collections.abc import Callable
+from typing import Any
+
+import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
+
 from references import KIND_LABELS, resources_for
+from streamlit_config import CatParam
 from theme import (
     AUROC_BAD,
     AUROC_GOOD,
@@ -14,6 +21,8 @@ from theme import (
     display_chart,
     family_color,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def section_title(text: str, level: str = "###") -> None:
@@ -42,35 +51,70 @@ def chart_pair(
 
 
 # ============================================================================
-# Guided workflow
+# Guided workflow stepper - Native Streamlit implementation
 # ============================================================================
-def guided_stepper(steps: list[str], current: int | str, key: str) -> int:
-    """Guided workflow: clickable step tabs to move between the 3 stages.
-
-    Each step renders as a tab button and stores its index in ``session_state[key]``.
-    ``current`` may be an index (first run) or a stored label.
+def guided_stepper(steps: list[str], key: str) -> int:
     """
-    current_index = current
+    Modern guided workflow stepper using native Streamlit components.
 
-    cols = st.columns(len(steps), gap="small")
-    for i, col in enumerate(cols):
-        active = i == current_index
-        label = f"{i + 1} · {steps[i]}"
+    - Tracks max completed step (prevents skipping forward)
+    - Only allows: completed steps, or the immediate next step
+    - Native buttons with disabled state for locked steps
+    - Progress bar at top
+    - Returns current step index
+    """
+    # Initialize state
+    st.session_state.setdefault(f"{key}_current", 0)
+    st.session_state.setdefault(f"{key}_completed", 0)
+
+    current = st.session_state[f"{key}_current"]
+    completed = st.session_state[f"{key}_completed"]
+    n = len(steps)
+
+    # Progress bar (replaces complex CSS connector)
+    progress_val = int((completed / (n - 1)) * 100) if n > 1 else 100
+    st.progress(progress_val)
+
+    # Native buttons in columns
+    cols = st.columns(n, gap="small")
+    for i, (col, step_name) in enumerate(zip(cols, steps, strict=True)):
+        is_active = (i == current)
+        is_locked = (i > completed + 1)
+
+        # Determine label with status indicator
+        if i < completed or (i == completed and not is_active):
+            label = f"✓ {step_name}"
+        elif is_locked:
+            label = f"🔒 {step_name}"
+        else:
+            label = f"{i + 1}. {step_name}"
+
         with col:
             if st.button(
-                label,
-                key=f"{key}_tab_{i}",
+                label=label,
+                key=f"{key}_step_{i}",
+                disabled=is_locked,
+                type="primary" if is_active else "secondary",
                 use_container_width=True,
-                type="primary" if active else "secondary",
             ):
-                st.session_state[key] = i
+                st.session_state[f"{key}_current"] = i
                 st.rerun()
-    return _read_stepper_selection(steps, key)
+
+    return st.session_state[f"{key}_current"]
 
 
-def _read_stepper_selection(steps: list[str], key: str) -> int:
-    """Resolve which step is active after the tabs (or a Next/Back jump)."""
-    return st.session_state.get(key, 0)
+def advance_step(key: str, n_steps: int = 4) -> None:
+    """Advance to next step and mark current as completed."""
+    cur = st.session_state.get(f"{key}_current", 0)
+    if cur < n_steps - 1:
+        st.session_state[f"{key}_current"] = cur + 1
+        st.session_state[f"{key}_completed"] = max(st.session_state.get(f"{key}_completed", 0), cur + 1)
+
+
+def back_step(key: str) -> None:
+    """Go back one step."""
+    if st.session_state.get(f"{key}_current", 0) > 0:
+        st.session_state[f"{key}_current"] -= 1
 
 
 def breadcrumb(parts: list[tuple[str, bool]], context: str | None = None) -> None:
@@ -142,6 +186,7 @@ def clickable_cards(specs: list[dict], key: str, gap: str = "medium") -> str:
     current = st.session_state.get(key, specs[0]["id"] if specs else "")
 
     # Style the card buttons: full width, left aligned, accent top border.
+    # Base styles + selected state (kind="primary") styles.
     card_css = []
     for spec in specs:
         slug = _click_key(f"{key}_card_{spec['id']}")
@@ -153,6 +198,11 @@ def clickable_cards(specs: list[dict], key: str, gap: str = "medium") -> str:
             f"border:1px solid {accent}55; border-top:4px solid {accent};"
             f"background:linear-gradient(180deg, {accent}1c, var(--bg-surface));"
             f"white-space:normal; font-weight:400; line-height:1.5; }}"
+            f"button.st-key-{slug}[kind=\"primary\"], "
+            f".st-key-{slug} button[kind=\"primary\"] {{"
+            f"background:linear-gradient(180deg, {accent}33, {accent}22);"
+            f"border-color:{accent}aa; border-top:4px solid {accent};"
+            f"box-shadow:0 0 0 2px {accent}44;}}"
             f"button.st-key-{slug} p {{ margin:0; padding:0; }}"
         )
     st.markdown(f"<style>{''.join(card_css)}</style>", unsafe_allow_html=True)
@@ -213,25 +263,25 @@ def read_param_values(params, prefix: str) -> dict:
     """Read the current widget values for a detector's params from session state."""
     values = {}
     for param in params:
-        key = f"{prefix}_{param.kwarg}"
-        values[param.kwarg] = st.session_state.get(key, param.default)
+        key = f"{prefix}_{param.arg_name}"
+        values[param.arg_name] = st.session_state.get(key, param.default)
     return values
 
 
 def render_param_widgets(params, prefix: str, values: dict, help: bool = False) -> None:
-    """Render one slider (or selectbox for enum params) per ParamSpec.
+    """Render one slider (or selectbox for enum params) per Param.
 
     ``help=True`` appends the default value as widget help text (used where
     sliders live under a toggle card instead of a full detector card).
     """
     for param in params:
-        key = f"{prefix}_{param.kwarg}"
-        if param.options:
+        key = f"{prefix}_{param.arg_name}"
+        if isinstance(param, CatParam):
             options = list(param.options)
             st.selectbox(
                 param.label,
                 options,
-                index=options.index(values[param.kwarg]),
+                index=options.index(values[param.arg_name]),
                 key=key,
                 help=f"Default: {param.default}" if help else None,
             )
@@ -239,9 +289,9 @@ def render_param_widgets(params, prefix: str, values: dict, help: bool = False) 
             value_type = type(param.default)
             st.slider(
                 param.label,
-                value_type(param.min),
-                value_type(param.max),
-                value_type(values[param.kwarg]),
+                value_type(param.min_val),
+                value_type(param.max_val),
+                value_type(values[param.arg_name]),
                 step=value_type(param.step),
                 key=key,
             )
@@ -290,3 +340,64 @@ def detector_card(
         if params:
             st.markdown("---")
             render_param_widgets(params, prefix, values or read_param_values(params, prefix))
+
+
+# ============================================================================
+# Decision boundary rendering (shared by 2D Playground and CASAS score map)
+# ============================================================================
+def render_decision_boundary(
+    detector: Any,
+    x_range: tuple[float, float],
+    y_range: tuple[float, float],
+    boundary_color: str,
+    transform: Callable | None = None,
+    grid_resolution: int = 60,
+) -> list[go.Scatter]:
+    """Extract detector's real decision boundary via marching squares.
+
+    Returns three-layer seam traces: dark edge → family color → white core.
+    """
+    from mesh import contour_polylines, score_mesh
+
+    _, _, zz, threshold = score_mesh(detector, x_range, y_range, grid=grid_resolution, transform=transform)
+    polylines = contour_polylines(zz, threshold, x_range, y_range)
+    traces = []
+    if polylines:
+        for line_color, width in [
+            ("rgba(8, 12, 20, 0.85)", 5.0),
+            (boundary_color, 3.0),
+            ("rgba(255, 255, 255, 0.95)", 1.2),
+        ]:
+            bx, by = [], []
+            for pl in polylines:
+                bx.extend(pl[:, 0].tolist())
+                by.extend(pl[:, 1].tolist())
+                bx.append(None)
+                by.append(None)
+            traces.append(go.Scatter(
+                x=bx, y=by, mode="lines",
+                line={"color": line_color, "width": width},
+                hoverinfo="skip", showlegend=False
+            ))
+    return traces
+
+
+# ============================================================================
+# Safe detector fit/predict with fallback
+# ============================================================================
+def safe_fit_predict(
+    detector: Any,
+    X_train: np.ndarray,
+    X_score: np.ndarray,
+    fallback_score: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Fit detector on X_train, predict on X_score. Returns zeros on failure."""
+    try:
+        detector.fit(X_train)
+        return detector.predict(X_score)
+    except Exception as e:
+        logger.warning("Detector %s failed: %s", type(detector).__name__, e)
+        return (
+            np.zeros(len(X_score), dtype=int),
+            np.full(len(X_score), fallback_score)
+        )

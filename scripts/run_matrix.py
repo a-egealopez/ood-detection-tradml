@@ -24,7 +24,11 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from config import db_path, setup_logging
-from detectors.constants import DEFAULT_RANDOM_STATE
+from detectors.constants import (
+    DEFAULT_CONTAMINATION,
+    DEFAULT_RANDOM_STATE,
+    DEFAULT_TRAIN_SPLIT,
+)
 from evaluation.matrix_evaluation import (
     aggregate_matrix,
     monotonicity_check,
@@ -72,10 +76,10 @@ def parse_args():
     parser.add_argument(
         "--train-split",
         type=float,
-        default=0.7,
+        default=DEFAULT_TRAIN_SPLIT,
         help="Fraction of days used for training (rest = holdout)",
     )
-    parser.add_argument("--contamination", type=float, default=0.2)
+    parser.add_argument("--contamination", type=float, default=DEFAULT_CONTAMINATION)
     parser.add_argument(
         "--output",
         type=str,

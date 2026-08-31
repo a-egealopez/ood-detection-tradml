@@ -9,4 +9,5 @@ tick>=0.7.1
 pyod>=1.1.1
 
 # dev / linting
+pytest>=8.0
 ruff>=0.16.2

@@ -46,6 +46,14 @@ CONTEXTUAL_INTENSITIES = {"low": 1, "medium": 3, "high": 5}
 COLLECTIVE_INTENSITIES = {"low": 0.25, "medium": 0.55, "high": 1.0}
 POINT_INTENSITIES = {"low": 0.5, "medium": 1.0, "high": 2.0}
 
+# Uniform mapping of anomaly type -> intensity presets, shared by the app, the
+# evaluation CLI and the matrix runner (single source of truth).
+INTENSITY_PRESETS = {
+    "point": POINT_INTENSITIES,
+    "contextual": CONTEXTUAL_INTENSITIES,
+    "collective": COLLECTIVE_INTENSITIES,
+}
+
 # Hour band where the point-anomaly burst is parked (3-4 AM: normally quiet).
 POINT_BURST_HOUR = (3, 4)
 
@@ -288,130 +296,3 @@ def transition_asymmetry(df: pd.DataFrame, extractor=None) -> float:
             pairs[key][1] += c
     ratios = [min(v[0], v[1]) / max(v[0], v[1]) for v in pairs.values() if max(v) > 0]
     return float(np.mean(ratios)) if ratios else 1.0
-
-
-if __name__ == "__main__":
-    from features import NextEventTransitionExtractor
-    from ingestion.markov_generator import (
-        build_movement_graph,
-        generate_daily_events,
-    )
-
-    rng = np.random.default_rng(11)
-    graph = build_movement_graph({"door_activity": 1.0})
-
-    # Build a normal 40-day stream (regime-driven) for the rare-transition model.
-    days = []
-    for d in range(40):
-        rows = generate_daily_events(
-            rng, pd.Timestamp("2024-01-01") + pd.Timedelta(days=d), 180, 0.08,
-            graph, {"name": "typical", "event_factor": 1.0, "night_offset": 0.0},
-        )
-        days.append(rows)
-    flat = [row for day in days for row in day]
-    df = pd.DataFrame(flat, columns=["date", "time", "sensor_id", "reading"])
-    df["timestamp"] = pd.to_datetime(df["date"] + " " + df["time"])
-    df = df.sort_values("timestamp").reset_index(drop=True)
-    df["event_type"] = ["ON"] * len(df)
-    df["value"] = [1.0] * len(df)
-    df = df[["timestamp", "sensor_id", "event_type", "value"]]
-
-    rng = np.random.default_rng(11)
-    anomaly_dates = {pd.Timestamp("2024-01-20").date(), pd.Timestamp("2024-01-21").date()}
-
-    # --- Contextual: marginals preserved except the hourly distribution ---------
-    ctx = inject_contextual_events(df, rng, CONTEXTUAL_INTENSITIES["high"], anomaly_dates)
-    ctx_report = marginal_diff(df, ctx)
-    ctx_anomaly_days = {str(d) for d in anomaly_dates}
-    for date_key, diff in ctx_report.items():
-        if date_key not in ctx_anomaly_days:
-            continue
-        assert diff["total"] == 0, f"{date_key}: total changed ({diff['total']})"
-        assert all(v == 0 for v in diff["sensor"].values()), f"{date_key}: sensor counts changed"
-        assert any(v != 0 for v in diff["hour"].values()), f"{date_key}: hourly should change"
-    print(" Contextual margins OK (total + per-sensor constant, hourly changed)")
-
-    # --- Collective: marginals fully preserved, transitions changed -----------
-    for name, level in COLLECTIVE_INTENSITIES.items():
-        coll = inject_collective_events(df, rng, level, anomaly_dates)
-        coll_report = marginal_diff(df, coll)
-        for date_key, diff in coll_report.items():
-            if date_key not in ctx_anomaly_days:
-                continue
-            assert diff["total"] == 0, f"{date_key}: total changed"
-            assert all(v == 0 for v in diff["sensor"].values()), (
-                f"{date_key}: sensor counts changed ({diff['sensor']})"
-            )
-            assert all(v == 0 for v in diff["hour"].values()), (
-                f"{date_key}: hourly counts changed"
-            )
-    print(" Collective margins OK (total + per-sensor + per-hour constant, all intensities)")
-
-    # --- Point: the burst only touches anomalous days; clean days untouched ----
-    for name, level in POINT_INTENSITIES.items():
-        pt = inject_point_events(df, rng, level, anomaly_dates)
-        pt_report = marginal_diff(df, pt)
-        for date_key, diff in pt_report.items():
-            if date_key in ctx_anomaly_days:
-                assert diff["total"] > 0, f"{date_key}: burst should add events"
-                assert any(v > 0 for v in diff["sensor"].values()), (
-                    f"{date_key}: burst should add events for its sensor"
-                )
-                assert any(v != 0 for v in diff["hour"].values()), (
-                    f"{date_key}: burst should change the hourly distribution"
-                )
-            else:
-                assert diff["total"] == 0 and all(v == 0 for v in diff["sensor"].values()), (
-                    f"{date_key}: clean day changed by point injector"
-                )
-    print(" Point margins OK (burst adds events, clean days untouched, all intensities)")
-
-    # --- Asymmetry precondition ---------------------------------------------
-    # The collective injector only produces *rare* transitions when the movement
-    # graph is directional. Check the generated stream is asymmetric enough, or
-    # the reversal proxy below would pass vacuously (as it does on symmetric real
-    # data, where reversal is undetectable by construction).
-    asym = transition_asymmetry(df)
-    print(f" Transition asymmetry (1.0 = symmetric): {asym:.3f} (gate < 0.85)")
-    assert asym < 0.85, "collective injection needs asymmetric transitions"
-
-    # --- Intensity monotonicity proxies ---------------------------------------
-    extractor = NextEventTransitionExtractor().fit(df)
-
-    ctx_proxies = {}
-    for name, level in CONTEXTUAL_INTENSITIES.items():
-        df_inj = _with_date(inject_contextual_events(df, rng, level, anomaly_dates))
-        b = _with_date(df)
-        l1 = 0
-        for d in sorted(anomaly_dates):
-            hb = pd.to_datetime(b.loc[b["date"] == d, "timestamp"]).dt.hour.value_counts()
-            ha = pd.to_datetime(df_inj.loc[df_inj["date"] == d, "timestamp"]).dt.hour.value_counts()
-            l1 += int(np.abs(hb.sub(ha, fill_value=0)).sum())
-        ctx_proxies[name] = l1
-    print(" Contextual proxy (hourly-distribution L1 shift):", ctx_proxies)
-    assert ctx_proxies["low"] <= ctx_proxies["medium"] <= ctx_proxies["high"]
-
-    coll_proxies = {}
-    for name, level in COLLECTIVE_INTENSITIES.items():
-        df_inj = _with_date(inject_collective_events(df, rng, level, anomaly_dates))
-        rates = [
-            rare_transition_rate(df_inj[df_inj["date"] == d], extractor)
-            for d in sorted(anomaly_dates)
-        ]
-        coll_proxies[name] = round(float(np.mean(rates)), 3)
-    print(" Collective proxy (rare-transition rate):", coll_proxies)
-    assert coll_proxies["low"] <= coll_proxies["medium"] <= coll_proxies["high"]
-
-    point_proxies = {}
-    for name, level in POINT_INTENSITIES.items():
-        b = _with_date(df)
-        df_inj = _with_date(inject_point_events(df, rng, level, anomaly_dates))
-        gains = [
-            (len(df_inj[df_inj["date"] == d]) - len(b[b["date"] == d])) / len(b[b["date"] == d])
-            for d in sorted(anomaly_dates)
-        ]
-        point_proxies[name] = round(float(np.mean(gains)), 3)
-    print(" Point proxy (relative event gain):", point_proxies)
-    assert point_proxies["low"] <= point_proxies["medium"] <= point_proxies["high"]
-
-    print(" Validation OK")

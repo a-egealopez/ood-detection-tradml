@@ -34,15 +34,19 @@ import pandas as pd
 from sklearn.metrics import roc_auc_score
 
 from detectors import (
-    HMMDetector,
     HawkesDetector,
+    HMMDetector,
     IsolationForestDetector,
     MahalanobisDetector,
     MarkovSequenceDetector,
     PCAReconstructionDetector,
     ZScoreDetector,
 )
-from detectors.constants import DEFAULT_RANDOM_STATE
+from detectors.constants import (
+    DEFAULT_CONTAMINATION,
+    DEFAULT_RANDOM_STATE,
+    DEFAULT_TRAIN_SPLIT,
+)
 from evaluation.event_injection import (
     COLLECTIVE_INTENSITIES,
     CONTEXTUAL_INTENSITIES,
@@ -158,8 +162,8 @@ def prepare_cell(
     intensity: str,
     seed: int,
     *,
-    train_split: float = 0.7,
-    contamination: float = 0.2,
+    train_split: float = DEFAULT_TRAIN_SPLIT,
+    contamination: float = DEFAULT_CONTAMINATION,
     intensity_fractions: dict | None = None,
 ) -> PreparedCell:
     """Inject (if needed) and re-extract the eval matrices for one seed."""
@@ -273,8 +277,8 @@ def run_matrix(
     detectors=None,
     n_seeds: int = 10,
     seed_base: int = DEFAULT_RANDOM_STATE,
-    train_split: float = 0.7,
-    contamination: float = 0.2,
+    train_split: float = DEFAULT_TRAIN_SPLIT,
+    contamination: float = DEFAULT_CONTAMINATION,
 ) -> pd.DataFrame:
     """Full matrix as one row per (type, intensity, detector, seed)."""
     detectors = detectors or list(DEFAULT_DETECTORS.keys())

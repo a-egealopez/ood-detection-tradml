@@ -1,9 +1,7 @@
 """Shared mesh-scoring helper for decision-boundary charts.
 
 Both teaching charts (2D Playground, CASAS score clouds) draw the detector's
-real anomaly-score field over a grid. The only difference is whether the mesh
-must be mapped back to feature space before scoring (CASAS: PCA plane -> 9-D
-features). This helper centralizes that so the two views cannot drift apart.
+real anomaly-score field over a grid.
 """
 
 from collections.abc import Callable

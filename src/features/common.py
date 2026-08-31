@@ -1,24 +1,13 @@
-"""Shared helpers for the feature-extraction modules.
-
-Centralizes the small numeric constant and the entropy function that are used by
-both the pipeline extractor (``temporal_features.py``) and the didactic
-extractors (``event_driven_extractors.py``), so their definitions live in one
-place instead of being copy-pasted across files with subtly different values.
-"""
+"""Shared daily-aggregation helpers for the feature extractors."""
 
 import numpy as np
 import pandas as pd
 
-# Numerical stability guard used inside entropy and ratio computations.
-EPSILON = 1e-10
+from config import EPSILON
 
 
 def entropy(counts: np.ndarray, base: float = np.e) -> float:
-    """Shannon entropy of a count histogram, in a given log ``base``.
-
-    A zero or empty histogram yields 0.0. ``base`` lets callers pick natural
-    log (default) or log-2 for bits without repeating the reduction logic.
-    """
+    """Shannon entropy of a count histogram in log ``base`` (0.0 if empty)."""
     counts = np.asarray(counts, dtype=float)
     total = counts.sum()
     if total == 0:
@@ -29,8 +18,7 @@ def entropy(counts: np.ndarray, base: float = np.e) -> float:
     return float(-np.sum(probs * np.log(probs + EPSILON)) / log_base)
 
 
-# Hour window used to define "night" activity (quiet hours when a resident
-# would normally be asleep/away).
+# Night window (22:00-08:00, wraps past midnight).
 NIGHT_START_HOUR = 22
 NIGHT_END_HOUR = 8
 
@@ -42,14 +30,10 @@ def daily_aggregates(
     include_peak_hour: bool = False,
     include_frequency_std: bool = False,
 ) -> dict:
-    """Reduce one day's events into a dict of shared daily statistics.
+    """Reduce one day's events into shared daily statistics.
 
-    This is the single source of the daily aggregation used by both the
-    pipeline extractor (``TemporalFeatureExtractor``) and the didactic window
-    extractor (``WindowAggregationExtractor``), which previously duplicated
-    these ~30 lines. ``base`` picks the entropy log base; the two flags add the
-    features only the pipeline uses. ``group`` must already have its timestamp
-    parsed to ``datetime`` and a derived ``hour`` column.
+    Shared by the pipeline and didactic extractors. ``group`` must have parsed
+    ``timestamp`` and derived ``hour`` columns; the flags add pipeline-only features.
     """
     n_events = len(group)
     if n_events == 0:
@@ -108,11 +92,9 @@ def daily_aggregates(
 def extract_by_date(
     df: pd.DataFrame, feature_fn
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Group events by day and reduce each day through ``feature_fn``.
+    """Reduce each day through ``feature_fn`` after parsing timestamp/date/hour.
 
-    Parses the timestamp and derives the ``date`` and ``hour`` columns once, so
-    each extractor's ``feature_fn`` can rely on them being present. Returns
-    ``(X, dates)`` where each row of ``X`` is the feature vector of one day.
+    Returns ``(X, dates)``, one feature row per day.
     """
     df = df.copy()
     df["timestamp"] = pd.to_datetime(df["timestamp"])

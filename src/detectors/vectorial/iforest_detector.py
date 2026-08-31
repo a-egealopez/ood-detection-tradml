@@ -60,25 +60,3 @@ class IsolationForestDetector(BaseDetector):
         scores = self._scores_to_unit(raw_scores, self.score_min, self.score_max)
 
         return anomalies, scores
-
-
-if __name__ == "__main__":
-    np.random.seed(42)
-    X_normal = np.random.randn(100, 5)
-    X_test = np.vstack(
-        [
-            np.random.randn(80, 5),
-            np.random.randn(20, 5) + 6,
-        ]
-    )
-
-    det = IsolationForestDetector(contamination=0.05)
-    det.fit(X_normal)
-    anomalies, scores = det.predict(X_test)
-
-    print(f" Anomalies detected: {anomalies.sum()} / {len(anomalies)}")
-    print(f" Score range: [{scores.min():.3f}, {scores.max():.3f}]")
-
-    _, single_score = det.predict(X_test[:1])
-    det._assert_unit_range(single_score)
-    print(" Validation OK")

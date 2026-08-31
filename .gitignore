@@ -3,6 +3,7 @@ logs/
 .env
 __pycache__/
 *.pyc
+.pytest_cache/
 .streamlit/secrets.toml
 venv/
 notes.txt

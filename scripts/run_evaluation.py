@@ -7,18 +7,23 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from config import db_path, setup_logging
+from sklearn.metrics import roc_auc_score
+
+from config import MIN_DAYS, db_path, setup_logging
 from detectors import (
     EnsembleDetector,
     IsolationForestDetector,
     PCAReconstructionDetector,
     ZScoreDetector,
 )
-from detectors.constants import DEFAULT_RANDOM_STATE
+from detectors.constants import (
+    DEFAULT_CONTAMINATION,
+    DEFAULT_ENSEMBLE_THRESHOLD_PERCENTILE,
+    DEFAULT_RANDOM_STATE,
+    DEFAULT_TRAIN_SPLIT,
+)
 from evaluation.event_injection import (
-    COLLECTIVE_INTENSITIES,
-    CONTEXTUAL_INTENSITIES,
-    POINT_INTENSITIES,
+    INTENSITY_PRESETS,
     inject_collective_events,
     inject_contextual_events,
     inject_point_events,
@@ -31,15 +36,8 @@ from features import (
     TemporalFeatureExtractor,
 )
 from ingestion.sqlite_manager import SQLiteDataManager
-from sklearn.metrics import roc_auc_score
 
 logger = setup_logging()
-
-INTENSITY_PRESETS = {
-    "point": POINT_INTENSITIES,
-    "contextual": CONTEXTUAL_INTENSITIES,
-    "collective": COLLECTIVE_INTENSITIES,
-}
 
 INJECTORS = {
     "point": inject_point_events,
@@ -86,13 +84,13 @@ def parse_args():
     parser.add_argument(
         "--train-split",
         type=float,
-        default=0.7,
+        default=DEFAULT_TRAIN_SPLIT,
         help="Fracción de días usados para entrenar (resto = holdout)",
     )
     parser.add_argument("--zscore-threshold", type=float, default=3.0)
     parser.add_argument("--iforest-contamination", type=float, default=0.05)
     parser.add_argument("--pca-components", type=int, default=5)
-    parser.add_argument("--ensemble-threshold-percentile", type=float, default=90)
+    parser.add_argument("--ensemble-threshold-percentile", type=float, default=DEFAULT_ENSEMBLE_THRESHOLD_PERCENTILE)
     parser.add_argument(
         "--scenario",
         choices=["point", "contextual", "collective"],
@@ -110,7 +108,7 @@ def parse_args():
     parser.add_argument(
         "--contamination",
         type=float,
-        default=0.15,
+        default=DEFAULT_CONTAMINATION,
         help="Fraction of holdout days with an injected anomaly",
     )
     parser.add_argument(
@@ -176,7 +174,7 @@ def run_house(db: SQLiteDataManager, house_id: str, args) -> dict:
     df_house["timestamp"] = pd.to_datetime(df_house["timestamp"])
     df_house["date"] = df_house["timestamp"].dt.date
     dates = sorted(df_house["date"].unique())
-    if len(dates) < 10:
+    if len(dates) < MIN_DAYS:
         return {
             "house_id": house_id,
             "status": f"muy pocos días ({len(dates)}), se omite",
