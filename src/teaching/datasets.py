@@ -63,12 +63,13 @@ class SyntheticDatasetGenerator:
         n_inliers = int(n_samples * (1 - contamination))
         n_outliers = n_samples - n_inliers
 
-        X_inliers, _ = make_blobs(
+        blobs = make_blobs(
             n_samples=n_inliers,
             centers=centers,
             cluster_std=1.0,
             random_state=rng,
         )
+        X_inliers = np.asarray(blobs[0])
 
         X_outliers = rng.uniform(-8, 8, size=(n_outliers, 2))
 

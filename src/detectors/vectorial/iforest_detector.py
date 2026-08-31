@@ -1,3 +1,5 @@
+from typing import Any
+
 import numpy as np
 from sklearn.ensemble import IsolationForest
 
@@ -25,7 +27,7 @@ class IsolationForestDetector(BaseDetector):
 
     def fit(self, X: np.ndarray) -> "IsolationForestDetector":
         X_arr = self._to_float(X)
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "contamination": self.contamination,
             "n_estimators": self.n_estimators,
             "random_state": self.random_state,
@@ -49,8 +51,8 @@ class IsolationForestDetector(BaseDetector):
         return self
 
     def predict(self, X: np.ndarray):
-        if self.model is None:
-            self._check_fitted("model")
+        if self.model is None or self.score_min is None or self.score_max is None:
+            raise RuntimeError("You must call fit() before predict()")
 
         X_arr = self._to_float(X)
         predictions = self.model.predict(X_arr)

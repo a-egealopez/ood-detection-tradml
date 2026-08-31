@@ -301,8 +301,9 @@ def main():
     ok_rows = report[report["status"] == "ok"]
     if not ok_rows.empty and "synthetic_auroc_mean" in ok_rows.columns:
         avg_auroc = ok_rows["synthetic_auroc_mean"].mean()
+        n_seeds = int(np.asarray(ok_rows["n_seeds"])[0])
         print(f"\nAUROC sintético promedio entre casas: {avg_auroc:.3f} "
-              f"(n_seeds={int(ok_rows['n_seeds'].iloc[0])}, split 70/30 fijo)")
+              f"(n_seeds={n_seeds}, split 70/30 fijo)")
         spread = ok_rows["synthetic_auroc_std"].mean()
         if avg_auroc < 0.7:
             print(

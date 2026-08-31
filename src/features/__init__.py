@@ -1,12 +1,11 @@
+from .common import FeatureScaler
 from .event_driven_extractors import (
     IntervalStatisticsExtractor,
     NextEventTransitionExtractor,
     NGramTransitionExtractor,
-    WindowAggregationExtractor,
+    TemporalFeatureExtractor,
     generate_synthetic_events,
 )
-from .scaler import FeatureScaler
-from .temporal_features import TemporalFeatureExtractor
 
 __all__ = [
     "FeatureScaler",
@@ -14,6 +13,5 @@ __all__ = [
     "NGramTransitionExtractor",
     "NextEventTransitionExtractor",
     "TemporalFeatureExtractor",
-    "WindowAggregationExtractor",
     "generate_synthetic_events",
 ]

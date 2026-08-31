@@ -123,7 +123,7 @@ class SQLiteDataManager:
             raise RuntimeError("You must call connect() before query_to_dataframe()")
 
         try:
-            df = pd.read_sql_query(sql, self.conn, params=params)
+            df = pd.read_sql_query(sql, self.conn, params=list(params))
             if "timestamp" in df.columns:
                 df["timestamp"] = pd.to_datetime(df["timestamp"])
             return df
@@ -153,17 +153,21 @@ class SQLiteDataManager:
             where = "WHERE house_id = ?" if house_id else ""
             params = (house_id,) if house_id else ()
 
-            cursor.execute(f"SELECT COUNT(*) FROM sensor_events {where}", params)
+            # `where` is a fixed constant ("WHERE house_id = ?" or ""), never
+            # user input; values are passed as bound parameters.
+            cursor.execute(
+                f"SELECT COUNT(*) FROM sensor_events {where}", params  # noqa: S608
+            )
             count = cursor.fetchone()[0]
 
             cursor.execute(
-                f"SELECT MIN(timestamp), MAX(timestamp) FROM sensor_events {where}",
+                f"SELECT MIN(timestamp), MAX(timestamp) FROM sensor_events {where}",  # noqa: S608
                 params,
             )
             min_ts, max_ts = cursor.fetchone()
 
             cursor.execute(
-                f"SELECT COUNT(DISTINCT sensor_id) FROM sensor_events {where}", params
+                f"SELECT COUNT(DISTINCT sensor_id) FROM sensor_events {where}", params  # noqa: S608
             )
             n_sensors = cursor.fetchone()[0]
 

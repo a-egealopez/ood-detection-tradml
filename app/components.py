@@ -2,7 +2,7 @@
 
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import plotly.graph_objects as go
@@ -176,7 +176,9 @@ def _click_key(key: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]", "-", key)
 
 
-def clickable_cards(specs: list[dict], key: str, gap: str = "medium") -> str:
+def clickable_cards(
+    specs: list[dict], key: str, gap: Literal["small", "medium", "large"] = "medium"
+) -> str:
     """Card grid whose cards ARE the control - click anywhere on a card to select it.
 
     Each spec: ``id``, ``icon``, ``title``, ``description``, ``color``, optional

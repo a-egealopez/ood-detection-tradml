@@ -52,13 +52,15 @@ class PCAReconstructionDetector(BaseDetector):
         return self
 
     def _reconstruction_errors(self, X: np.ndarray) -> np.ndarray:
+        if self.W is None or self.mean is None:
+            raise RuntimeError("You must call fit() before predict()")
         X_centered = X - self.mean
         X_recon = X_centered @ self.W @ self.W.T
         return np.linalg.norm(X_centered - X_recon, axis=1) ** 2
 
     def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        if self.W is None or self.mean is None:
-            self._check_fitted("W/mean")
+        if self.threshold is None or self.score_min is None or self.score_max is None:
+            raise RuntimeError("You must call fit() before predict()")
 
         X = self._to_float(X)
         errors = self._reconstruction_errors(X)

@@ -35,8 +35,13 @@ class KNNDetector(BaseDetector):
         return self
 
     def predict(self, X: np.ndarray):
-        if self.model is None:
-            self._check_fitted("model")
+        if (
+            self.model is None
+            or self.threshold is None
+            or self.score_min is None
+            or self.score_max is None
+        ):
+            raise RuntimeError("You must call fit() before predict()")
 
         X = self._to_float(X)
         distances, _ = self.model.kneighbors(X)

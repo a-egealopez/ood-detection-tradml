@@ -30,6 +30,7 @@ that a detector's AUROC rises monotonically with intensity.
 from __future__ import annotations
 
 import itertools
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -85,7 +86,7 @@ def _event_pair_for(sensor: str, rng) -> tuple[str, float]:
 
 def inject_contextual_events(
     df: pd.DataFrame,
-    rng,
+    _rng,
     intensity: int,
     anomaly_dates,
 ) -> pd.DataFrame:
@@ -147,7 +148,7 @@ def inject_collective_events(
         # (without moving the displaced value out) would change the per-sensor
         # counts and leak a feature anomaly the collective injector must not
         # produce.
-        n_swapped = max(1, int(round(intensity * n)))
+        n_swapped = max(1, round(intensity * n))
         n_pairs = max(1, min(n // 2, n_swapped // 2))
         half = np.arange(n // 2)
         chosen = rng.choice(half, size=n_pairs, replace=False)
@@ -194,7 +195,7 @@ def inject_point_events(
             pieces.append(day)
             continue
         day = day.copy()
-        n_extra = max(1, int(round(len(day) * float(intensity))))
+        n_extra = max(1, round(len(day) * float(intensity)))
         base = day["timestamp"].iloc[0].normalize() + pd.Timedelta(hours=start_hour)
         offsets = rng.integers(0, window_minutes, size=n_extra)
         sensor = str(rng.choice(day["sensor_id"].unique()))
@@ -236,8 +237,8 @@ def marginal_diff(df_before: pd.DataFrame, df_after: pd.DataFrame) -> dict:
     after = _with_date(df_after)
     report = {}
     for date in sorted(set(before["date"])):
-        b = before[before["date"] == date]
-        a = after[after["date"] == date]
+        b = cast(pd.DataFrame, before[before["date"] == date])
+        a = cast(pd.DataFrame, after[after["date"] == date])
         report[str(date)] = {
             "total": int(len(a) - len(b)),
             "sensor": {

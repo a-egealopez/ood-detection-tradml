@@ -41,6 +41,7 @@ from data_access import (
 )
 from detectors.factory import build_detector
 from detectors.sequential.hawkes_detector import HawkesDetector
+from detectors.sequential.hmm_detector import HMMDetector
 from features import FeatureScaler, TemporalFeatureExtractor
 from mesh import GRID_RESOLUTION, score_mesh
 from streamlit_config import (
@@ -150,10 +151,14 @@ class HouseFeatures:
     X_counts: np.ndarray
 
 
+@st.cache_data(show_spinner=False, max_entries=256)
 def _house_features_cached(
     source: str, house_id: str, scenario: str = "control", intensity: str = "medium"
 ) -> "HouseFeatures":
     """Scaled daily features for one house (cached).
+
+    Cached so the Detect step does not re-extract/re-scale every house on each
+    interaction (toggling a detector re-runs the whole view).
 
     ``X_2d`` is a PCA(2) projection of the scaled features, fitted on the training
     rows only - a didactic 2-D view for the score-cloud charts (the mesh gradient
@@ -167,12 +172,12 @@ def _house_features_cached(
         df, _ = load_house_events_injected(source, house_id, scenario, intensity)
     else:
         df = load_house_events(source, house_id)
-    if df is None or df.empty:
-        return HouseFeatures((), (), None, [], 0, ())
+    if df.empty:
+        return HouseFeatures(np.array([]), np.array([]), None, [], 0, np.array([]))
     extractor = TemporalFeatureExtractor()
     X, dates = extractor.extract(df)
     if len(X) < MIN_DAYS:
-        return HouseFeatures((), (), None, [], 0, ())
+        return HouseFeatures(np.array([]), np.array([]), None, [], 0, np.array([]))
     X_counts = extractor.count_columns(X)
     X_scaled = FeatureScaler().fit_transform(X)
     train_n = max(1, int(len(X_scaled) * 0.7))
@@ -188,11 +193,50 @@ def _injection_config(source: str) -> tuple[str, str]:
     return "control", "medium"
 
 
+@st.cache_data(show_spinner=False, max_entries=384)
+def _detector_card_output(
+    name: str,
+    params_key: tuple,
+    view: str,
+    source: str,
+    preview_house: str,
+    scenario: str,
+    intensity: str,
+    use_counts: bool,
+) -> go.Figure:
+    """Fit a detector on its training rows and build its card chart (cached).
+
+    The key is a short, stable tuple (no raw arrays), so the cache hits on every
+    Detect-step interaction unless the house, scenario or params actually change.
+    Features come back from ``_house_features_cached`` (also cached), so toggling
+    the ensemble selection never re-extracts or re-fits the detectors of the
+    other cards.
+    """
+    features = _house_features_cached(source, preview_house, scenario, intensity)
+    detector = build_detector(name, dict(params_key))
+    pca = None if use_counts else features.pca
+    X_fit = features.X_counts if use_counts else features.X_scaled
+    y_pred, scores = safe_fit_predict(detector, X_fit[: features.train_n], X_fit)
+    if use_counts or view == "Timeline":
+        return _build_detector_timeline(features.dates, scores, name)
+    return _build_detector_cloud(
+        name,
+        features.X_2d,
+        pca,
+        scores,
+        detector,
+        y_pred,
+        features.dates,
+    )
+
+
 def _render_detector_card(
     preview_house: str,
     name: str,
     selected: bool,
-    features: HouseFeatures,
+    source: str,
+    scenario: str,
+    intensity: str,
 ) -> None:
     """One detector card: toggle header + chart (timeline / PCA cloud) + sliders."""
     spec = DETECTOR_REGISTRY[name]
@@ -210,33 +254,53 @@ def _render_detector_card(
     try:
         detector = build_detector(name, values)
         uses_counts = isinstance(detector, HawkesDetector)
-        X_fit = features.X_counts if uses_counts else features.X_scaled
-        y_pred, scores = safe_fit_predict(detector, X_fit[: features.train_n], X_fit)
-        if uses_counts:
-            # The PCA-plane score map is fitted on the scaled features; a
-            # count-based intensity model cannot be drawn over it honestly, so
-            # the Hawkes card only shows the timeline.
-            st.caption(
-                "Applied to the raw daily event counts (n_events, n_sensors, "
-                "activity_hours) - a Poisson intensity process, not the scaled "
-                "feature matrix. The score map is only meaningful for "
-                "vectorial detectors."
+        # Sequential models score a *sequence*, not a standalone point, so their
+        # "decision boundary" in the PCA plane is not a faithful visualization
+        # (and the HMM's per-point score map is O(n^2)). Both only show a timeline.
+        sequential = isinstance(detector, (HawkesDetector, HMMDetector))
+        params_key = tuple(sorted(values.items()))
+        if sequential:
+            if uses_counts:
+                st.caption(
+                    "Applied to the raw daily event counts (n_events, n_sensors, "
+                    "activity_hours) - a Poisson intensity process, not the scaled "
+                    "feature matrix. The score map is only meaningful for "
+                    "vectorial detectors."
+                )
+            else:
+                st.caption(
+                    "Applied to the scaled daily features. A sequential model "
+                    "scores each day given its history, so a single point has no "
+                    "score-map meaning - only the timeline is shown."
+                )
+            fig = _detector_card_output(
+                name,
+                params_key,
+                "Timeline",
+                source,
+                preview_house,
+                scenario,
+                intensity,
+                uses_counts,
             )
-            fig = _build_detector_timeline(features.dates, scores, name)
         else:
             view = st.segmented_control(
                 "Visualization",
-                ["Time", "Score map"],
-                default="Score map",
+                ["Timeline", "Score map"],
+                default="Timeline",
                 label_visibility="collapsed",
                 key=f"card_view_casas_{preview_house}_{name}",
+            ) or "Timeline"
+            fig = _detector_card_output(
+                name,
+                params_key,
+                view,
+                source,
+                preview_house,
+                scenario,
+                intensity,
+                False,
             )
-            if view == "Score map":
-                fig = _build_detector_cloud(
-                    name, features.X_2d, features.pca, scores, detector, y_pred, features.dates
-                )
-            else:
-                fig = _build_detector_timeline(features.dates, scores, name)
         display_chart(fig, key=f"det_chart_casas_{preview_house}_{name}")
     except Exception as exc:
         st.warning(f"⚠️ {name}: {exc}")
@@ -300,7 +364,9 @@ def _render_detect_panel(source: str) -> None:
                         preview_house,
                         names[idx],
                         names[idx] in selected,
-                        features,
+                        source,
+                        scenario,
+                        intensity,
                     )
 
     st.markdown("---")
@@ -567,7 +633,12 @@ def _render_house_results(
                 zmax=1,
             )
         )
-        apply_layout(fig_corr, "Detector Agreement (higher = more aligned)", height=400)
+        apply_layout(
+            fig_corr,
+            "Detector Agreement (higher = more aligned)",
+            height=300,
+            margins={"l": 120},
+        )
         display_chart(fig_corr, key=f"corr_casas_{house_view}")
 
     csv_data = details.to_csv(index=False)
@@ -592,9 +663,9 @@ def _render_anomalies_tab(results: dict) -> None:
         list(results.keys()),
         key="anom_house_casas",
         help="All houses run the pipeline; this picker only chooses which one to inspect.",
-    )
+    ) or next(iter(results))
     anomaly_dates = st.session_state.get("anom_casas", {}).get(house_view, ())
-    _render_house_results(house_view, results[house_view], anomaly_dates)
+    _render_house_results(str(house_view), results[house_view], anomaly_dates)
 
     info_box(
         "⚡",

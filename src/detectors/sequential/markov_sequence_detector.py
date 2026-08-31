@@ -50,8 +50,12 @@ class MarkovSequenceDetector(BaseDetector):
         return self
 
     def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        if self.score_min is None or self.score_max is None:
-            self._check_fitted("score_min/score_max")
+        if (
+            self.score_min is None
+            or self.score_max is None
+            or self.threshold is None
+        ):
+            raise RuntimeError("You must call fit() before predict()")
 
         X = self._to_float(X)
         raw = self._raw_scores(X)

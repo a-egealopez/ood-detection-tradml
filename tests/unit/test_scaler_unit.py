@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from features.scaler import FeatureScaler
+from features.common import FeatureScaler
 
 
 def test_fit_transform_zero_mean_unit_variance():

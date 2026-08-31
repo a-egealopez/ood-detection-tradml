@@ -6,6 +6,30 @@ import pandas as pd
 from config import EPSILON
 
 
+class FeatureScaler:
+    """Z-score standardizer (fit on train only) shared by the pipeline and CLI."""
+
+    def __init__(self):
+        self.mu = None
+        self.sigma = None
+
+    def fit(self, X: np.ndarray) -> "FeatureScaler":
+        X = np.asarray(X, dtype=float)
+        self.mu = X.mean(axis=0)
+        self.sigma = X.std(axis=0)
+        return self
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        if self.mu is None or self.sigma is None:
+            raise RuntimeError("You must call fit() before transform()")
+        X = np.asarray(X, dtype=float)
+        return (X - self.mu) / (self.sigma + EPSILON)
+
+    def fit_transform(self, X: np.ndarray) -> np.ndarray:
+        self.fit(X)
+        return self.transform(X)
+
+
 def entropy(counts: np.ndarray, base: float = np.e) -> float:
     """Shannon entropy of a count histogram in log ``base`` (0.0 if empty)."""
     counts = np.asarray(counts, dtype=float)
@@ -66,7 +90,7 @@ def daily_aggregates(
 
     events_per_sensor = group.groupby("sensor_id").size()
     event_frequency_std = (
-        float(events_per_sensor.std()) if n_sensors > 1 else 0.0
+        float(np.asarray(events_per_sensor).std()) if n_sensors > 1 else 0.0
     )
 
     hourly_counts = (
@@ -79,14 +103,21 @@ def daily_aggregates(
         "activity_hours": int(activity_hours),
         "avg_gap_minutes": avg_gap_minutes,
         "night_activity": night_activity,
-        "entropy_hourly": entropy(hourly_counts, base=base),
-        "entropy_sensor": entropy(events_per_sensor.values, base=base),
+        "entropy_hourly": entropy(np.asarray(hourly_counts), base=base),
+        "entropy_sensor": entropy(np.asarray(events_per_sensor), base=base),
     }
     if include_peak_hour:
         result["peak_hour"] = peak_hour
     if include_frequency_std:
         result["event_frequency_std"] = event_frequency_std
     return result
+
+
+def event_sequence(df: pd.DataFrame, token_col: str = "sensor_id") -> list[str]:  # noqa: S107
+    """Order a stream's tokens by timestamp (shared by the order-based extractors)."""
+    df = df.copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    return df.sort_values("timestamp")[token_col].astype(str).tolist()
 
 
 def extract_by_date(

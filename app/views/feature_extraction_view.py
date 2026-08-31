@@ -8,6 +8,7 @@ inspector below turns raw events into the numeric vector for that method.
 
 import sys
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -32,7 +33,7 @@ from features.event_driven_extractors import (
     IntervalStatisticsExtractor,
     NextEventTransitionExtractor,
     NGramTransitionExtractor,
-    WindowAggregationExtractor,
+    TemporalFeatureExtractor,
     generate_synthetic_events,
 )
 from theme import (
@@ -308,8 +309,10 @@ FEATURE_MEANINGS = {
         "n_events": "Events triggered that day",
         "n_sensors": "Distinct sensors that fired",
         "activity_hours": "Distinct hours with activity",
-        "avg_gap_minutes": "Mean time between consecutive events (min)",
-        "night_activity_ratio": "Share of events during night (22h-8h)",
+        "avg_event_gap_minutes": "Mean time between consecutive events (min)",
+        "peak_hour": "Hour of day with the most activity (the daily 'routine peak')",
+        "night_activity": "Share of events during night (22h-8h)",
+        "event_frequency_std": "Spread of event counts across sensors; irregular use = higher",
         "entropy_hourly": "How spread the activity is across 24 hours (bits); higher = more irregular rhythm",
         "entropy_sensor": "How balanced the sensor usage is (bits); uniform use = maximum",
     },
@@ -338,7 +341,7 @@ FEATURE_MEANINGS = {
 # Inspector helpers (synthetic pattern picker lives with the Data step)
 # ============================================================================
 def _plot_window_aggregation(
-    group: pd.DataFrame, diag: dict
+    group: pd.DataFrame,
 ) -> tuple[go.Figure, go.Figure]:
     group = group.copy()
     group["timestamp"] = pd.to_datetime(group["timestamp"])
@@ -373,7 +376,11 @@ def _plot_window_aggregation(
     timeline.update_xaxes(title_text="Hour")
     timeline.update_yaxes(title_text="Sensor")
 
-    hourly = diag["hourly_counts"]
+    hourly = (
+        group.groupby(group["timestamp"].dt.hour)
+        .size()
+        .reindex(range(24), fill_value=0)
+    )
     hist = go.Figure(
         go.Bar(x=list(hourly.index), y=hourly.values, marker_color=PRIMARY_SOFT)
     )
@@ -568,17 +575,18 @@ def _load_stream(data_source: str) -> pd.DataFrame:
         st.error(f"Could not load the database: {e}")
         st.stop()
 
-    if df is None or df.empty:
+    if df.empty:
         st.warning(
             "The database is empty. Run first `python src/ingestion/casas_loader.py`."
         )
         st.stop()
 
-    real: pd.DataFrame = df
+    real: pd.DataFrame = pd.DataFrame(df)
     max_days = int(st.session_state.get("fx_days_real", 10))
     timestamps = pd.to_datetime(real["timestamp"])
     dates = sorted(timestamps.dt.date.unique())[:max_days]
-    return real[timestamps.dt.date.isin(dates)]
+    mask = timestamps.dt.date.isin(dates).to_numpy()
+    return cast(pd.DataFrame, real[mask])
 
 
 def _recap_stream(data_source: str) -> None:
@@ -627,7 +635,7 @@ def _example_streams(data_source: str) -> tuple[pd.DataFrame, pd.DataFrame, tupl
         except Exception as e:
             st.error(f"Could not load the database: {e}")
             st.stop()
-        if real is None or real.empty:
+        if real.empty:
             st.warning(
                 "The database is empty. Run first `python src/ingestion/casas_loader.py`."
             )
@@ -636,7 +644,7 @@ def _example_streams(data_source: str) -> tuple[pd.DataFrame, pd.DataFrame, tupl
         max_days = int(st.session_state.get("fx_days_real", 10))
         timestamps = pd.to_datetime(events["timestamp"])
         dates = sorted(timestamps.dt.date.unique())[:max_days]
-        normal = events[timestamps.dt.date.isin(dates)].copy()
+        normal = events[timestamps.dt.date.isin(dates).to_numpy()].copy()
 
     scenario, intensity = get_injection_config()
     injected, anomalous_dates = apply_injection(normal, scenario, intensity)
@@ -652,6 +660,21 @@ def _vector_for_day(extractor, df: pd.DataFrame, day) -> list[float]:
     return [0.0] * len(extractor.FEATURE_NAMES)
 
 
+def _build_extractor(method: str, df: pd.DataFrame):
+    """Instantiate the didactic extractor for ``method`` and fit it on ``df``.
+
+    The stateful extractors (Next-Event, N-gram) learn their vocabulary /
+    probability matrix from ``df`` so ``diagnostics()`` and ``extract()`` work.
+    """
+    if method == "Window Aggregation":
+        return TemporalFeatureExtractor()
+    if method == "Inter-Event Interval (IEI)":
+        return IntervalStatisticsExtractor()
+    if method == "Next-Event Prediction (Markov)":
+        return NextEventTransitionExtractor().fit(df)
+    return NGramTransitionExtractor().fit_vocabulary(df)
+
+
 def _render_example_vector(data_source: str, method: str) -> None:
     """Compact 'example feature vector' panel next to the method schematic.
 
@@ -661,17 +684,7 @@ def _render_example_vector(data_source: str, method: str) -> None:
     """
     normal, injected, anomalous_dates = _example_streams(data_source)
     scenario, _ = get_injection_config()
-
-    if method == "Window Aggregation":
-        extractor = WindowAggregationExtractor()
-    elif method == "Inter-Event Interval (IEI)":
-        extractor = IntervalStatisticsExtractor()
-    elif method == "Next-Event Prediction (Markov)":
-        extractor = NextEventTransitionExtractor()
-        extractor.fit(injected)
-    else:
-        extractor = NGramTransitionExtractor()
-        extractor.fit_vocabulary(injected)
+    extractor = _build_extractor(method, injected)
 
     if scenario != "control" and anomalous_dates:
         example_day = anomalous_dates[0]
@@ -721,17 +734,7 @@ def _render_inspector(data_source: str, method_name: str) -> None:
     """
     df = _load_stream(data_source)
     _recap_stream(data_source)
-
-    if method_name == "Window Aggregation":
-        extractor = WindowAggregationExtractor()
-    elif method_name == "Inter-Event Interval (IEI)":
-        extractor = IntervalStatisticsExtractor()
-    elif method_name == "Next-Event Prediction (Markov)":
-        extractor = NextEventTransitionExtractor()
-        extractor.fit(df)
-    else:
-        extractor = NGramTransitionExtractor()
-        extractor.fit_vocabulary(df)
+    extractor = _build_extractor(method_name, df)
 
     X, dates = extractor.extract(df)
     df_dates = pd.to_datetime(df["timestamp"]).dt.date
@@ -752,11 +755,11 @@ def _render_inspector(data_source: str, method_name: str) -> None:
 
     for day in chosen_days:
         st.markdown(f"### 📅 {day}")
-        group = df[df_dates == day]
+        group = cast(pd.DataFrame, df[df_dates == day])
         diag = extractor.diagnostics(group)
 
         if method_name == "Window Aggregation":
-            fig_a, fig_b = _plot_window_aggregation(group, diag)
+            fig_a, fig_b = _plot_window_aggregation(group)
         elif method_name == "Inter-Event Interval (IEI)":
             fig_a, fig_b = _plot_interval_statistics(group, diag)
         elif method_name == "Next-Event Prediction (Markov)":

@@ -214,7 +214,9 @@ def _render_2d_ensemble() -> None:
         st.dataframe(pd.DataFrame(auroc_data), hide_index=True, use_container_width=True)
 
     # Flagged points
-    flagged = details[details["is_anomaly"] == 1].sort_values("ensemble_score", ascending=False)
+    flagged = details[details["is_anomaly"] == 1].sort_values(  # type: ignore[reportCallIssue]
+        "ensemble_score", ascending=False
+    )
     st.markdown("**Flagged as Anomalous**")
     st.dataframe(flagged[["ensemble_score", "is_anomaly", *score_cols]], use_container_width=True)
 

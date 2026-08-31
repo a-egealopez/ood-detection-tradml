@@ -10,7 +10,7 @@ class EnsembleDetector:
     def __init__(
         self,
         detectors: list | None = None,
-        weights: np.ndarray = None,
+        weights: np.ndarray | None = None,
         ensemble_mode: Literal["soft", "hard"] = "soft",
         ensemble_threshold_percentile: float = DEFAULT_ENSEMBLE_THRESHOLD_PERCENTILE,
         detector_inputs: list[np.ndarray | None] | None = None,
@@ -38,9 +38,11 @@ class EnsembleDetector:
         self.ensemble_mode = ensemble_mode
         self.ensemble_threshold_percentile = ensemble_threshold_percentile
         self.threshold = None
+        self.detector_inputs: list[np.ndarray | None]
         if detector_inputs is None:
-            detector_inputs = [None] * len(detectors)
-        self.detector_inputs = list(detector_inputs)
+            self.detector_inputs = [None] * len(detectors)
+        else:
+            self.detector_inputs = list(detector_inputs)
 
         if weights is None:
             weights = (
@@ -49,11 +51,10 @@ class EnsembleDetector:
         else:
             weights = np.asarray(weights, dtype=float)
 
-        if len(weights) > 0:
-            assert abs(weights.sum() - 1.0) < EPSILON, (
-                f"Weights must sum to 1 (got {weights.sum()})"
-            )
-        assert len(weights) == len(detectors), "Len(weights) != Len(detectors)"
+        if len(weights) > 0 and abs(weights.sum() - 1.0) >= EPSILON:
+            raise ValueError(f"Weights must sum to 1 (got {weights.sum()})")
+        if len(weights) != len(detectors):
+            raise ValueError("Len(weights) != Len(detectors)")
         self.weights = weights
 
     def _input_for(self, index: int, X: np.ndarray) -> np.ndarray:

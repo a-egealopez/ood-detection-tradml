@@ -27,6 +27,8 @@ class HMMDetector(BaseDetector):
 
     def _predictive_loglik(self, X: np.ndarray) -> np.ndarray:
         """Causal per-observation predictive log-likelihood of each row."""
+        if self.model is None:
+            raise RuntimeError("You must call fit() before predict()")
         loglik = np.zeros(len(X))
         cumulative = 0.0
         for i in range(len(X)):
@@ -60,8 +62,8 @@ class HMMDetector(BaseDetector):
         return self
 
     def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        if self.model is None:
-            self._check_fitted("model")
+        if self.model is None or self.score_min is None or self.score_max is None or self.threshold is None:
+            raise RuntimeError("You must call fit() before predict()")
 
         X = self._to_float(X)
         scores = self._predictive_loglik(X)

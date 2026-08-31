@@ -60,7 +60,8 @@ ignore = [
 pythonVersion = "3.10"
 typeCheckingMode = "strict"
 pythonPlatform = "Linux"
-pythonPath = "venv/bin/python"
+venvPath = "."
+venv = "venv"
 reportUnusedImport = true
 reportUnusedVariable = true
 reportMissingTypeStubs = false
@@ -70,6 +71,11 @@ reportUnknownVariableType = false
 reportUnknownArgumentType = false
 reportMissingParameterType = false
 reportMissingTypeArgument = false
+# The repo uses scikit-learn-style uppercase "X" for the feature matrix (idiom);
+# pyright treats it as a module-level constant and flags redefinition.
+reportConstantRedefinition = false
+# streamlit's @st.cache_data is not typed in the official stubs.
+reportUntypedFunctionDecorator = false
 exclude = [
     "data",
     "logs",

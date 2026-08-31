@@ -30,12 +30,14 @@ class ZScoreDetector(BaseDetector):
         return self
 
     def _max_abs_z(self, X: np.ndarray) -> np.ndarray:
+        if self.mu is None or self.sigma is None:
+            raise RuntimeError("You must call fit() before predict()")
         z = (X - self.mu) / (self.sigma + EPSILON)
         return np.max(np.abs(z), axis=1)
 
     def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        if self.mu is None or self.sigma is None:
-            self._check_fitted("mu/sigma")
+        if self.mu is None or self.sigma is None or self.score_min is None or self.score_max is None:
+            raise RuntimeError("You must call fit() before predict()")
 
         X_arr = self._to_float(X)
         zmax = self._max_abs_z(X_arr)

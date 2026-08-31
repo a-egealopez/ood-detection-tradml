@@ -38,8 +38,14 @@ class MahalanobisDetector(BaseDetector):
         return self
 
     def predict(self, X: np.ndarray):
-        if self.mean is None or self.cov_inv is None:
-            self._check_fitted("mean/cov_inv")
+        if (
+            self.mean is None
+            or self.cov_inv is None
+            or self.threshold is None
+            or self.score_min is None
+            or self.score_max is None
+        ):
+            raise RuntimeError("You must call fit() before predict()")
 
         X = self._to_float(X)
         scores_raw = np.array(

@@ -44,6 +44,8 @@ class HawkesDetector(BaseDetector):
 
     def _conditional_loglik(self, X: np.ndarray) -> np.ndarray:
         """Negated conditional log-likelihood per row (higher = more anomalous)."""
+        if self.baseline_ is None or self.alpha_ is None or self.beta_ is None:
+            raise RuntimeError("You must call fit() before predict()")
         X = self._to_float(X)
         n_days, n_features = X.shape
 
@@ -84,6 +86,8 @@ class HawkesDetector(BaseDetector):
     def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         if not self._fitted:
             self._check_fitted("_fitted")
+        if self.threshold is None or self.score_min is None or self.score_max is None:
+            raise RuntimeError("You must call fit() before predict()")
 
         X = self._to_float(X)
         scores_raw = self._conditional_loglik(X)

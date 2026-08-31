@@ -212,7 +212,7 @@ def generate_daily_events(
 
 def generate_house_stream(
     *,
-    house_id: str,
+    house_id: str,  # noqa: ARG001 - part of the public API signature
     events_mean: int,
     night_ratio: float,
     n_days: int,

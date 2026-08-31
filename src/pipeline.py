@@ -45,7 +45,7 @@ def run_house(
     ``df`` must already be loaded (the app caches it); this function stays
     responsible for feature extraction, scaling and training.
     """
-    if df is None or df.empty:
+    if df.empty:
         return None, f"No data for '{house_id}'."
 
     df = df.copy()

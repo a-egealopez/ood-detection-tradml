@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from features.temporal_features import TemporalFeatureExtractor
+from features.event_driven_extractors import TemporalFeatureExtractor
 
 
 def _synthetic_events(n: int = 200) -> pd.DataFrame:

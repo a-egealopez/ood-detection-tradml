@@ -1,6 +1,6 @@
-"""End-to-end verification of the coherent-anomaly pipeline (Fase 6).
+"""End-to-end verification of the coherent-anomaly pipeline.
 
-Runs every DoD gate the plan requires and exits non-zero if any fails:
+Runs every verification gate and exits non-zero if any fails:
 
  1. Generator gates   : graph entropy < 0.70, AC1(n_events) >= 0.30
                         (``tests/unit/test_markov_generator_unit.py``).
@@ -43,17 +43,17 @@ import pandas as pd
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from config import db_path, setup_logging
-from detectors.constants import DEFAULT_RANDOM_STATE
-from evaluation.event_injection import transition_asymmetry
-from evaluation.matrix_evaluation import (
+from config import db_path, setup_logging  # noqa: E402
+from detectors.constants import DEFAULT_RANDOM_STATE  # noqa: E402
+from evaluation.event_injection import transition_asymmetry  # noqa: E402
+from evaluation.matrix_evaluation import (  # noqa: E402
     DEFAULT_DETECTORS,
     aggregate_matrix,
     monotonicity_check,
     run_matrix,
 )
-from features import NextEventTransitionExtractor
-from ingestion.sqlite_manager import SQLiteDataManager
+from features import NextEventTransitionExtractor  # noqa: E402
+from ingestion.sqlite_manager import SQLiteDataManager  # noqa: E402
 
 logger = setup_logging()
 
@@ -73,8 +73,9 @@ GATE_NULL_TOL = 0.12      # null-control AUROC must stay within [0.38, 0.62]
 GATE_MARKOV_CONTEXTUAL = 0.15  # |auroc - 0.5| must stay under this
 GATE_ASYMMETRY = 0.85          # transitions must be directional for reversal work
 
-# Fase 1/2/3 gates now live as pytest tests under tests/; verify_pipeline runs
-# them in one subprocess call instead of invoking each module's __main__ block.
+# The generator/injector/detector gates live as pytest tests under tests/;
+# verify_pipeline runs them in one subprocess call instead of invoking each
+# module's __main__ block.
 FASE123_TESTS = [
     "tests/unit/test_markov_generator_unit.py",
     "tests/unit/test_injectors_unit.py",
@@ -104,7 +105,9 @@ def run_pytest_tests(paths: list[str]) -> tuple[bool, str]:
         "PYTHONPATH": str(ROOT),
         "PYTHONWARNINGS": "ignore",
     }
-    proc = subprocess.run(
+    # `where` is a fixed constant; the env dict is built from known values, so a
+    # subprocess call here does not execute untrusted input.
+    proc = subprocess.run(  # noqa: S603
         [sys.executable, "-m", "pytest", "-q", *paths],
         capture_output=True,
         text=True,
@@ -189,13 +192,13 @@ def main():
     parser.add_argument("--houses", nargs="+", default=None)
     args = parser.parse_args()
 
-    checks: list[tuple[str, bool, str]] = []
-    print("== Fase 1/2/3 gates (pytest) ==")
+    checks: list[tuple[str, str, str]] = []
+    print("== Generator / injector / detector gates (pytest) ==")
     ok, out = run_pytest_tests(FASE123_TESTS)
     tail = out.strip().splitlines()[-1] if out.strip() else "(no output)"
-    add("Fase 1/2/3 self-validation (generator + injectors + detectors)", ok, tail, checks)
+    add("Self-validation (generator + injectors + detectors)", ok, tail, checks)
 
-    print("\n== Fase 4 matrix gates ==")
+    print("\n== Matrix gates ==")
     db = SQLiteDataManager(str(db_path(args.source)))
     db.connect()
     houses = args.houses or db.list_houses()
@@ -234,7 +237,7 @@ def main():
 
     print("\n== Summary ==")
     n_ok = sum(1 for _, label, _ in checks if label in ("OK", "INFO"))
-    for name, label, detail in checks:
+    for name, label, _detail in checks:
         print(f"  [{label}] {name}")
     failed = [name for name, label, _ in checks if label == "FAIL"]
     print(f"\n{len(checks)} gates: {n_ok} passed, {len(failed)} failed.")
