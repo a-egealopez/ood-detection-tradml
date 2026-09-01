@@ -554,7 +554,7 @@ def _plot_next_event(
 
 
 def _load_stream(data_source: str) -> pd.DataFrame:
-    """Build the event stream from the config already chosen in the Data step."""
+    """Load the event stream (configured in the Data step)."""
     if data_source == "Synthetic":
         df = generate_synthetic_events(
             n_days=int(st.session_state.get("fx_days", 4)),
@@ -570,7 +570,7 @@ def _load_stream(data_source: str) -> pd.DataFrame:
 
     try:
         max_days = int(st.session_state.get("fx_days_real", 10))
-        df = load_all_events(max_days=max_days)
+        df = load_all_events(max_days=max_days, source="real")
     except Exception as e:
         st.error(f"Could not load the database: {e}")
         st.stop()
@@ -585,7 +585,7 @@ def _load_stream(data_source: str) -> pd.DataFrame:
 
 
 def _recap_stream(data_source: str) -> None:
-    """One-line recap of the data currently inspected (configured in Data)."""
+    """Show data source and parameters."""
     if data_source == "Synthetic":
         scenario, intensity = get_injection_config()
         scenario_txt = (
@@ -699,10 +699,7 @@ def _render_example_vector(data_source: str, method: str) -> None:
 
 
 def _render_inspector(data_source: str, method_name: str) -> None:
-    """Inspect a day: diagnostics charts + feature vectors.
-
-    The event stream itself is configured in the Data step (no controls here).
-    """
+    """Show day-by-day extraction diagnostics and feature vectors."""
     df = _load_stream(data_source)
     _recap_stream(data_source)
     extractor = _build_extractor(method_name, df)

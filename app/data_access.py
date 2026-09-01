@@ -25,14 +25,12 @@ from ingestion.casas_loader import load_all_houses
 from ingestion.markov_generator import generate_house_stream
 from ingestion.sqlite_manager import SQLiteDataManager
 
-# Anomaly scenarios the synthetic track can face, in the picker order. "control"
-# is the null control (nothing injected); the three real types are injected on
-# the raw event stream at the chosen intensity.
+# Anomaly scenarios: control (null), point, contextual, collective.
 INJECTION_SCENARIOS = ("control", "point", "contextual", "collective")
 
-# Fixed split / contamination so the app mirrors the CLI matrix evaluation.
-INJECTION_TRAIN_SPLIT = DEFAULT_TRAIN_SPLIT
-INJECTION_CONTAMINATION = DEFAULT_CONTAMINATION
+# Fixed train/contamination to match CLI matrix evaluation.
+INJECTION_TRAIN_SPLIT = DEFAULT_TRAIN_SPLIT  # 70% train, 30% holdout
+INJECTION_CONTAMINATION = DEFAULT_CONTAMINATION  # Anomaly rate on holdout
 INJECTION_SEED = DEFAULT_RANDOM_STATE
 
 
@@ -42,13 +40,7 @@ def apply_injection(
     intensity_level: str = "medium",
     seed: int = INJECTION_SEED,
 ) -> tuple[pd.DataFrame, tuple]:
-    """Inject the chosen anomaly scenario into an event stream.
-
-    Anomalous days are a contiguous block on the holdout tail (same rule as
-    ``matrix_evaluation.prepare_cell``), so detectors train only on clean days.
-    Returns ``(injected_df, anomalous_dates)``; ``anomalous_dates`` is empty when
-    ``scenario == "control"`` (null control, nothing injected).
-    """
+    """Inject anomaly scenario into event stream; returns (df, anomalous_dates)."""
     if scenario == "control":
         return df, ()
 
@@ -78,18 +70,13 @@ def apply_injection(
 
 
 def get_injection_config() -> tuple[str, str]:
-    """Returns ``(scenario, intensity)`` from session_state with defaults.
-
-    The scenario/intensity are chosen in the Data step (synthetic track) and
-    shared by the Features step and the CASAS Detect step.
-    """
+    """Get (scenario, intensity) from session_state."""
     scenario = st.session_state.get("fx_scenario", "control")
     intensity = st.session_state.get("fx_scenario_intensity", "medium")
     return scenario, intensity
 
 
-# Synthetic house profiles mirroring scripts/generate_test_fixtures.py. Kept here
-# so the app can self-provision its data at deploy time (data/ is gitignored).
+# Synthetic house profiles (self-provision at deploy time since data/ is gitignored).
 
 
 class _HouseProfile(TypedDict):
@@ -108,14 +95,7 @@ _SYNTHETIC_HOUSE_PROFILES: dict[str, _HouseProfile] = {
 
 
 def ensure_synthetic_db() -> None:
-    """Provision the synthetic CASAS database if it is missing.
-
-    ``data/`` is gitignored, so a fresh clone (or a Streamlit Community Cloud
-    deploy) has no engine database. This runs at app startup and generates the
-    four synthetic houses from the Markov generator, then loads them into SQLite.
-    Failures are logged and swallowed so the 2-D teaching track keeps working even
-    if synthetic data cannot be built.
-    """
+    """Generate synthetic CASAS DB on first run (idempotent, failures are logged)."""
     out = db_path("synthetic")
     if out.exists():
         return
@@ -137,7 +117,7 @@ def ensure_synthetic_db() -> None:
 
 @st.cache_data(show_spinner=False)
 def list_houses(source: str) -> list[str]:
-    """List available house IDs for a data source (real | synthetic)."""
+    """List available houses in the source database."""
     db = SQLiteDataManager(str(db_path(source)))
     db.connect()
     try:
@@ -148,14 +128,7 @@ def list_houses(source: str) -> list[str]:
 
 @st.cache_data(show_spinner=False)
 def load_house_events(source: str, house_id: str, max_days: int = 0) -> pd.DataFrame:
-    """Load a house's events from the given data source, capped to ``max_days`` days.
-
-    ``max_days = 0`` returns the full stream (synthetic houses are already sized at
-    generation time). For the **real** source the caller passes the daily window
-    picked in the Data step (``fx_days_real``) so long WSU homes (up to ~235+ days)
-    are truncated before feature extraction and the pipeline never sees unbounded
-    input.
-    """
+    """Load house events, optionally truncated to max_days."""
     db = SQLiteDataManager(str(db_path(source)))
     db.connect()
     try:
@@ -173,11 +146,7 @@ def load_house_events_injected(
     intensity_level: str = "medium",
     seed: int = INJECTION_SEED,
 ) -> tuple[pd.DataFrame, tuple]:
-    """Load a house's events and apply the chosen anomaly scenario (synthetic track).
-
-    Returns ``(injected_df, anomalous_dates)``; with ``scenario == "control"`` the
-    clean stream comes back untouched and the date tuple is empty.
-    """
+    """Load house events and apply anomaly scenario; returns (df, anomalous_dates)."""
     df = load_house_events(source, house_id)
     return apply_injection(df, scenario, intensity_level, seed=seed)
 
@@ -185,13 +154,7 @@ def load_house_events_injected(
 def _query_events_with_limit(
     db: SQLiteDataManager, max_days: int | None
 ) -> pd.DataFrame:
-    """Query sensor_events, optionally limited to the first *max_days* days.
-
-    The day window is computed at the SQL level so large real CASAS databases
-    (235+ days) are not fully loaded into Python memory just to be sliced. The
-    cutoff is the max date among the first *max_days* distinct dates, mirroring
-    ``features.common.truncate_stream_to_days``.
-    """
+    """Query sensor_events, optionally limited to first max_days (SQL-level windowing)."""
     if max_days is not None and max_days > 0:
         sql = (
             "SELECT * FROM sensor_events "
@@ -208,14 +171,9 @@ def _query_events_with_limit(
 
 
 @st.cache_data(show_spinner=False)
-def load_all_events(max_days: int = 0) -> pd.DataFrame:
-    """Load the real event table (used by the feature-extraction tutorial).
-
-    ``max_days = 0`` returns the full stream; otherwise the SQL query keeps only
-    the first *max_days* chronological days, avoiding a full-table load for large
-    real CASAS houses.
-    """
-    db = SQLiteDataManager(str(DB_PATH))
+def load_all_events(max_days: int = 0, source: str = "real") -> pd.DataFrame:
+    """Load event table from the specified source database."""
+    db = SQLiteDataManager(str(db_path(source)))
     db.connect()
     try:
         return _query_events_with_limit(db, max_days or None)
