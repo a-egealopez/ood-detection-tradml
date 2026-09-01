@@ -1,3 +1,5 @@
+from typing import Any
+
 import numpy as np
 from sklearn.ensemble import IsolationForest
 
@@ -25,7 +27,7 @@ class IsolationForestDetector(BaseDetector):
 
     def fit(self, X: np.ndarray) -> "IsolationForestDetector":
         X_arr = self._to_float(X)
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "contamination": self.contamination,
             "n_estimators": self.n_estimators,
             "random_state": self.random_state,
@@ -49,8 +51,8 @@ class IsolationForestDetector(BaseDetector):
         return self
 
     def predict(self, X: np.ndarray):
-        if self.model is None:
-            self._check_fitted("model")
+        if self.model is None or self.score_min is None or self.score_max is None:
+            raise RuntimeError("You must call fit() before predict()")
 
         X_arr = self._to_float(X)
         predictions = self.model.predict(X_arr)
@@ -60,25 +62,3 @@ class IsolationForestDetector(BaseDetector):
         scores = self._scores_to_unit(raw_scores, self.score_min, self.score_max)
 
         return anomalies, scores
-
-
-if __name__ == "__main__":
-    np.random.seed(42)
-    X_normal = np.random.randn(100, 5)
-    X_test = np.vstack(
-        [
-            np.random.randn(80, 5),
-            np.random.randn(20, 5) + 6,
-        ]
-    )
-
-    det = IsolationForestDetector(contamination=0.05)
-    det.fit(X_normal)
-    anomalies, scores = det.predict(X_test)
-
-    print(f" Anomalies detected: {anomalies.sum()} / {len(anomalies)}")
-    print(f" Score range: [{scores.min():.3f}, {scores.max():.3f}]")
-
-    _, single_score = det.predict(X_test[:1])
-    det._assert_unit_range(single_score)
-    print(" Validation OK")

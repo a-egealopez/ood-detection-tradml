@@ -119,7 +119,7 @@ def apply_layout(
             "x": 0.5,
             "xanchor": "center",
         }
-    fig.update_layout(**layout)
+    fig.update_layout(**layout)  # type: ignore[reportArgumentType]
     return fig
 
 

@@ -229,7 +229,9 @@ RESOURCES: tuple[Resource, ...] = (
         title="A Tutorial on Hidden Markov Models and Selected Applications in Speech Recognition",
         kind="paper",
         url="https://web.mit.edu/6.435/www/Rabiner89.pdf",
-        note="Rabiner (1989), Proc. IEEE 77(2): the canonical introduction to states, emissions and the forward/backward machinery — 20k+ citations.",
+        note="Rabiner (1989), Proc. IEEE 77(2): the canonical introduction to states, emissions and the forward/backward machinery — 20k+ citations. Use it for the HMM formalism; "
+        "note this detector goes one step further and scores each day by its causal predictive "
+        "log-likelihood (conditioning on the history seen so far) to flag deviations.",
     ),
     Resource(
         method="HMM",
@@ -237,6 +239,15 @@ RESOURCES: tuple[Resource, ...] = (
         kind="tool",
         url="https://hmmlearn.readthedocs.io/",
         note="The library used in the sequential track; its tutorial maps 1:1 onto this detector.",
+    ),
+    Resource(
+        method="HMM",
+        title="Unsupervised Log Anomaly Detection with Few Unique Tokens",
+        kind="paper",
+        url="https://arxiv.org/abs/2310.08951",
+        note="Sulc, Eichler & Wilksen (2023): scores each observation by the causal predictive "
+        "log-likelihood (likelihood of the history vs. including the new point) — exactly the "
+        "recursion this detector runs in numpy across days.",
     ),
     Resource(
         method="Hawkes",
@@ -251,6 +262,14 @@ RESOURCES: tuple[Resource, ...] = (
         kind="paper",
         url="https://arxiv.org/abs/1708.06401",
         note="Rizoiu, Lee, Mishra & Xie (2017), arXiv:1708.06401: the most accessible modern introduction to self-exciting point processes.",
+    ),
+    Resource(
+        method="Hawkes",
+        title="Statistical Models for Earthquake Occurrences and Residual Analysis for Point Processes",
+        kind="paper",
+        url="https://doi.org/10.1080/01621459.1988.10478560",
+        note="Ogata (1988), JASA 83(401): the forward recursion for the conditional-intensity log-likelihood, "
+        "which is exactly what this detector implements in numpy (no tick needed).",
     ),
     Resource(
         method="Hawkes",

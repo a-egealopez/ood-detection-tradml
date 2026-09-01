@@ -1,8 +1,8 @@
 [tool.poetry]
 name = "ood-detection-tradml"
 version = "0.1.0"
-description = "Didactic unsupervised anomaly / out-of-distribution detection with classical ML: synthetic scikit-learn datasets and event-driven time series from the CASAS dementia dataset."
-authors = ["Your Name <your-email@example.com>"]
+description = "Unsupervised out-of-distribution detection on event-driven smart-home time series with classical ML and a coherent synthetic-anomaly evaluation protocol."
+authors = ["a-egealopez"]
 license = "MIT"
 
 [tool.poetry.dependencies]
@@ -14,19 +14,24 @@ scipy = "^1.11"
 streamlit = "^1.30"
 plotly = "^5.17"
 hmmlearn = "^0.2.7"
-tick = "^0.7.1"
 pyod = "^1.1.1"
 
 [tool.poetry.dev-dependencies]
+pytest = ">=8.0"
 ruff = ">=0.16.2"
 pyright = ">=1.1.350"
 vulture = "^2.10"
 pip-audit = ">=2.7.0"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+addopts = "-ra"
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-src = ["app", "src"]
+src = ["app", "src", "tests"]
 
 [tool.ruff.lint]
 select = [
@@ -46,12 +51,16 @@ ignore = [
     "RUF001", # σ (sigma) is used intentionally in the playground math labels
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]  # asserts are the pytest idiom; bandit's S101 is for prod code
+
 [tool.pyright]
 # Strict type checking for deterministic correction workflow
 pythonVersion = "3.10"
 typeCheckingMode = "strict"
 pythonPlatform = "Linux"
-pythonPath = "venv/bin/python"
+venvPath = "."
+venv = "venv"
 reportUnusedImport = true
 reportUnusedVariable = true
 reportMissingTypeStubs = false
@@ -61,12 +70,18 @@ reportUnknownVariableType = false
 reportUnknownArgumentType = false
 reportMissingParameterType = false
 reportMissingTypeArgument = false
+# The repo uses scikit-learn-style uppercase "X" for the feature matrix (idiom);
+# pyright treats it as a module-level constant and flags redefinition.
+reportConstantRedefinition = false
+# streamlit's @st.cache_data is not typed in the official stubs.
+reportUntypedFunctionDecorator = false
 exclude = [
     "data",
     "logs",
     "venv",
     ".git",
     "__pycache__",
+    "tests",
     "*.pyc",
 ]
 stubPath = "stubs"

@@ -1,10 +1,3 @@
-"""CASAS anomaly-detection pipeline (pure logic, no Streamlit imports).
-
-Extracts daily features, scales them, trains an ensemble of detectors and returns
-per-house results. Kept outside ``app/`` so it stays importable from the CLI, tests,
-and the Streamlit UI alike.
-"""
-
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,13 +8,16 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from config import MIN_DAYS
 from detectors import EnsembleDetector
+from detectors.constants import (
+    DEFAULT_ENSEMBLE_THRESHOLD_PERCENTILE,
+    DEFAULT_TRAIN_SPLIT,
+)
 from detectors.factory import build_detectors
 from detectors.sequential.hawkes_detector import HawkesDetector
 from detectors.sequential.markov_sequence_detector import MarkovSequenceDetector
 from features import FeatureScaler, TemporalFeatureExtractor
-
-MIN_DAYS = 10
 
 
 @dataclass
@@ -40,16 +36,16 @@ def run_house(
     *,
     detector_names: list[str],
     detector_params: dict,
-    train_split: float = 0.7,
+    train_split: float = DEFAULT_TRAIN_SPLIT,
     ensemble_mode: Literal["soft", "hard"] = "soft",
-    threshold_percentile: float = 90,
+    threshold_percentile: float = DEFAULT_ENSEMBLE_THRESHOLD_PERCENTILE,
 ) -> tuple[HouseResult | None, str | None]:
     """Run the full pipeline on one house. Returns ``(result, error)``.
 
     ``df`` must already be loaded (the app caches it); this function stays
     responsible for feature extraction, scaling and training.
     """
-    if df is None or df.empty:
+    if df.empty:
         return None, f"No data for '{house_id}'."
 
     df = df.copy()

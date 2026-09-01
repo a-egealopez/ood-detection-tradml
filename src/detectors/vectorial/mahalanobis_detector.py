@@ -2,11 +2,11 @@ import numpy as np
 from scipy.spatial.distance import mahalanobis
 
 from detectors.base import BaseDetector
-from detectors.constants import DEFAULT_THRESHOLD_PERCENTILE, EPSILON
+from detectors.constants import DEFAULT_DETECTOR_THRESHOLD_PERCENTILE, EPSILON
 
 
 class MahalanobisDetector(BaseDetector):
-    def __init__(self, threshold_percentile: float = DEFAULT_THRESHOLD_PERCENTILE):
+    def __init__(self, threshold_percentile: float = DEFAULT_DETECTOR_THRESHOLD_PERCENTILE):
         self.threshold_percentile = threshold_percentile
         self.mean = None
         self.cov = None
@@ -38,8 +38,14 @@ class MahalanobisDetector(BaseDetector):
         return self
 
     def predict(self, X: np.ndarray):
-        if self.mean is None or self.cov_inv is None:
-            self._check_fitted("mean/cov_inv")
+        if (
+            self.mean is None
+            or self.cov_inv is None
+            or self.threshold is None
+            or self.score_min is None
+            or self.score_max is None
+        ):
+            raise RuntimeError("You must call fit() before predict()")
 
         X = self._to_float(X)
         scores_raw = np.array(

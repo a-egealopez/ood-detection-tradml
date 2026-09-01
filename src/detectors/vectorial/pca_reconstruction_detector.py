@@ -1,7 +1,7 @@
 import numpy as np
 
 from detectors.base import BaseDetector
-from detectors.constants import DEFAULT_THRESHOLD_PERCENTILE
+from detectors.constants import DEFAULT_DETECTOR_THRESHOLD_PERCENTILE
 
 
 class PCAReconstructionDetector(BaseDetector):
@@ -20,7 +20,7 @@ class PCAReconstructionDetector(BaseDetector):
     def __init__(
         self,
         n_components: int = 5,
-        threshold_percentile: float = DEFAULT_THRESHOLD_PERCENTILE,
+        threshold_percentile: float = DEFAULT_DETECTOR_THRESHOLD_PERCENTILE,
     ):
         self.n_components = n_components
         self.threshold_percentile = threshold_percentile
@@ -52,13 +52,15 @@ class PCAReconstructionDetector(BaseDetector):
         return self
 
     def _reconstruction_errors(self, X: np.ndarray) -> np.ndarray:
+        if self.W is None or self.mean is None:
+            raise RuntimeError("You must call fit() before predict()")
         X_centered = X - self.mean
         X_recon = X_centered @ self.W @ self.W.T
         return np.linalg.norm(X_centered - X_recon, axis=1) ** 2
 
     def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        if self.W is None or self.mean is None:
-            self._check_fitted("W/mean")
+        if self.threshold is None or self.score_min is None or self.score_max is None:
+            raise RuntimeError("You must call fit() before predict()")
 
         X = self._to_float(X)
         errors = self._reconstruction_errors(X)
@@ -67,23 +69,3 @@ class PCAReconstructionDetector(BaseDetector):
         scores = self._scores_to_unit(errors, self.score_min, self.score_max)
 
         return anomalies, scores
-
-
-if __name__ == "__main__":
-    np.random.seed(42)
-    X_normal = np.random.randn(100, 5)
-    X_test = np.vstack(
-        [
-            np.random.randn(80, 5),
-            np.random.randn(20, 5) + 6,
-        ]
-    )
-
-    det = PCAReconstructionDetector(n_components=3, threshold_percentile=95)
-    det.fit(X_normal)
-    anomalies, scores = det.predict(X_test)
-
-    print(f" Anomalies detected: {anomalies.sum()} / {len(anomalies)}")
-    print(f" Score range: [{scores.min():.3f}, {scores.max():.3f}]")
-    det._assert_unit_range(scores)
-    print(" Validation OK")

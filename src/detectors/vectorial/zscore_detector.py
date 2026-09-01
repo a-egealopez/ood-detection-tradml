@@ -30,12 +30,14 @@ class ZScoreDetector(BaseDetector):
         return self
 
     def _max_abs_z(self, X: np.ndarray) -> np.ndarray:
+        if self.mu is None or self.sigma is None:
+            raise RuntimeError("You must call fit() before predict()")
         z = (X - self.mu) / (self.sigma + EPSILON)
         return np.max(np.abs(z), axis=1)
 
     def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        if self.mu is None or self.sigma is None:
-            self._check_fitted("mu/sigma")
+        if self.mu is None or self.sigma is None or self.score_min is None or self.score_max is None:
+            raise RuntimeError("You must call fit() before predict()")
 
         X_arr = self._to_float(X)
         zmax = self._max_abs_z(X_arr)
@@ -44,24 +46,3 @@ class ZScoreDetector(BaseDetector):
         scores = self._scores_to_unit(zmax, self.score_min, self.score_max)
 
         return anomalies, scores
-
-
-if __name__ == "__main__":
-    np.random.seed(42)
-    X_normal = np.random.randn(100, 5)
-    X_test = np.vstack(
-        [
-            np.random.randn(80, 5),
-            np.random.randn(20, 5) + 6,
-        ]
-    )
-
-    det = ZScoreDetector(threshold=3.0)
-    det.fit(X_normal)
-    anomalies, scores = det.predict(X_test)
-
-    print(f" Anomalies detected: {anomalies.sum()} / {len(anomalies)}")
-    print(f" Score range: [{scores.min():.3f}, {scores.max():.3f}]")
-    assert anomalies[80:].sum() > 10
-    det._assert_unit_range(scores)
-    print(" Validation OK")

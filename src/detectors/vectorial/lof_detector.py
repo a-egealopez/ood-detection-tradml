@@ -20,19 +20,19 @@ class LOFDetector(BaseDetector):
         self.model = LOF(n_neighbors=self.n_neighbors, contamination=self.contamination)
         self.model.fit(X)
 
-        scores_train = self.model.decision_scores_
+        scores_train = np.asarray(self.model.decision_scores_)
         self.score_min = float(scores_train.min())
         self.score_max = float(scores_train.max())
 
         return self
 
     def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        if self.model is None:
-            self._check_fitted("model")
+        if self.model is None or self.score_min is None or self.score_max is None:
+            raise RuntimeError("You must call fit() before predict()")
 
         X = self._to_float(X)
-        scores_raw = self.model.decision_function(X)
-        anomalies = self.model.predict(X).astype(int)
+        scores_raw = np.asarray(self.model.decision_function(X))
+        anomalies = np.asarray(self.model.predict(X)).astype(int)
 
         scores = self._scores_to_unit(scores_raw, self.score_min, self.score_max)
 

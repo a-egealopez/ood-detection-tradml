@@ -54,16 +54,3 @@ def compute_metrics(y_true, y_pred) -> dict:
         "accuracy": accuracy(y_true, y_pred),
         "confusion_matrix": confusion_matrix(y_true, y_pred),
     }
-
-
-if __name__ == "__main__":
-    y_true = np.array([0, 0, 0, 1, 1, 0, 1, 0, 0, 1])
-    y_pred = np.array([0, 0, 1, 1, 1, 0, 0, 0, 0, 1])
-
-    metrics = compute_metrics(y_true, y_pred)
-
-    print(f" Precision: {metrics['precision']:.3f}")
-    print(f" Recall:    {metrics['recall']:.3f}")
-    print(f" F1:        {metrics['f1']:.3f}")
-    print(f" Accuracy:  {metrics['accuracy']:.3f}")
-    print(f" Confusion Matrix:\n{metrics['confusion_matrix']}")

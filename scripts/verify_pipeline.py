@@ -1,17 +1,17 @@
-"""End-to-end verification of the coherent-anomaly pipeline (Fase 6).
+"""End-to-end verification of the coherent-anomaly pipeline.
 
-Runs every DoD gate the plan requires and exits non-zero if any fails:
+Runs every verification gate and exits non-zero if any fails:
 
- 1. Generator gates   : graph entropy < 0.70, AC1(n_events) >= 0.30,
-                        rare-transition proxy (``ingestion.markov_generator``).
+ 1. Generator gates   : graph entropy < 0.70, AC1(n_events) >= 0.30
+                        (``tests/unit/test_markov_generator_unit.py``).
  2. Injector gates    : marginal preservation (contextual: total+sensor constant,
                         hourly changed; collective: total+sensor+hour constant)
                         and monotonic intensity proxies
-                        (``evaluation.event_injection``).
+                        (``tests/unit/test_injectors_unit.py``).
  3. Detector gates    : HMM predictive (regime change > normal), Hawkes intensity
                         (burst / displaced day > baseline), MarkovSequence
-                        (reversed day > typical) — the modules' self-validation
-                        ``__main__`` blocks, run as subprocesses.
+                        (reversed day > typical) — the behavioral tests under
+                        ``tests/functional/``, run via pytest.
  4. Matrix gates      : the type x intensity x detector matrix on the houses
                         (``evaluation.matrix_evaluation``). All three types are
                         injected on the raw event stream (intensity-graded):
@@ -43,17 +43,17 @@ import pandas as pd
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from config import db_path, setup_logging
-from detectors.constants import DEFAULT_RANDOM_STATE
-from evaluation.event_injection import transition_asymmetry
-from evaluation.matrix_evaluation import (
+from config import db_path, setup_logging  # noqa: E402
+from detectors.constants import DEFAULT_RANDOM_STATE  # noqa: E402
+from evaluation.event_injection import transition_asymmetry  # noqa: E402
+from evaluation.matrix_evaluation import (  # noqa: E402
     DEFAULT_DETECTORS,
     aggregate_matrix,
     monotonicity_check,
     run_matrix,
 )
-from features import NextEventTransitionExtractor
-from ingestion.sqlite_manager import SQLiteDataManager
+from features import NextEventTransitionExtractor  # noqa: E402
+from ingestion.sqlite_manager import SQLiteDataManager  # noqa: E402
 
 logger = setup_logging()
 
@@ -66,14 +66,23 @@ BLIND_ON_COLLECTIVE = [
     "Z-Score", "Mahalanobis", "Isolation Forest", "PCA Reconstruction", "HMM", "Hawkes",
 ]
 
-GATE_ENTROPY = 0.70       # graph must be peaked (structured), not uniform
-GATE_AC1 = 0.30           # daily features must carry lag-1 autocorrelation
 GATE_WINNER_POINT = 0.85
 GATE_WINNER_GRADED = 0.75
 GATE_BLIND_COLLECTIVE = 0.65
 GATE_NULL_TOL = 0.12      # null-control AUROC must stay within [0.38, 0.62]
 GATE_MARKOV_CONTEXTUAL = 0.15  # |auroc - 0.5| must stay under this
 GATE_ASYMMETRY = 0.85          # transitions must be directional for reversal work
+
+# The generator/injector/detector gates live as pytest tests under tests/;
+# verify_pipeline runs them in one subprocess call instead of invoking each
+# module's __main__ block.
+FASE123_TESTS = [
+    "tests/unit/test_markov_generator_unit.py",
+    "tests/unit/test_injectors_unit.py",
+    "tests/functional/test_hmm_behavior.py",
+    "tests/functional/test_hawkes_behavior.py",
+    "tests/functional/test_markov_sequence_behavior.py",
+]
 
 
 def compute_asymmetry(houses: dict[str, pd.DataFrame]) -> float:
@@ -86,18 +95,29 @@ def compute_asymmetry(houses: dict[str, pd.DataFrame]) -> float:
     return float(np.mean(ratios)) if ratios else 1.0
 
 
-def run_module(module: str) -> tuple[bool, str]:
-    """Run a module's self-validation __main__ block (exit 0 = gate passed)."""
-    env = {"PYTHONPATH": str(ROOT / "src"), "PYTHONWARNINGS": "ignore"}
-    proc = subprocess.run(
-        [sys.executable, "-m", module],
+def run_pytest_tests(paths: list[str]) -> tuple[bool, str]:
+    """Run a set of pytest files (exit 0 = gates passed).
+
+    Runs with the project root on PYTHONPATH so pytest discovers ``src`` and the
+    shared ``tests/conftest.py`` fixtures.
+    """
+    env = {
+        "PYTHONPATH": str(ROOT),
+        "PYTHONWARNINGS": "ignore",
+    }
+    # `where` is a fixed constant; the env dict is built from known values, so a
+    # subprocess call here does not execute untrusted input.
+    proc = subprocess.run(  # noqa: S603
+        [sys.executable, "-m", "pytest", "-q", *paths],
         capture_output=True,
         text=True,
         env=env,
-        timeout=600,
+        timeout=1800,
     )
-    lines = [ln for ln in proc.stdout.splitlines() if "INFO" not in ln]
-    return proc.returncode == 0, "\n".join(lines)
+    tail = proc.stdout.strip()
+    if not tail and proc.returncode != 0:
+        tail = proc.stderr.strip()
+    return proc.returncode == 0, tail
 
 
 def add(name: str, ok: bool, detail: str, checks: list) -> None:
@@ -130,7 +150,7 @@ def check_matrix_gates(agg, checks, *, asymmetry_ok: bool) -> None:
         add(f"contextual/{det} >= {GATE_WINNER_GRADED}",
             v is not None and v >= GATE_WINNER_GRADED, f"AUROC={v:.3f}")
     v = get("contextual", "high", "Markov Sequence")
-    add(f"contextual/Markov Sequence ~ 0.5 (blind)",
+    add("contextual/Markov Sequence ~ 0.5 (blind)",
         v is not None and abs(v - 0.5) <= GATE_MARKOV_CONTEXTUAL, f"AUROC={v:.3f}")
 
     v = get("collective", "high", "Markov Sequence")
@@ -172,20 +192,13 @@ def main():
     parser.add_argument("--houses", nargs="+", default=None)
     args = parser.parse_args()
 
-    checks: list[tuple[str, bool, str]] = []
-    print("== Fase 1/2/3 gates (self-validating modules) ==")
-    for module, label in [
-        ("ingestion.markov_generator", "generator"),
-        ("evaluation.event_injection", "injectors"),
-        ("detectors.sequential.hmm_detector", "HMM predictive"),
-        ("detectors.sequential.hawkes_detector", "Hawkes intensity"),
-        ("detectors.sequential.markov_sequence_detector", "MarkovSequence"),
-    ]:
-        ok, out = run_module(module)
-        tail = out.strip().splitlines()[-1] if out.strip() else "(no output)"
-        add(f"{label} self-validation", ok, tail, checks)
+    checks: list[tuple[str, str, str]] = []
+    print("== Generator / injector / detector gates (pytest) ==")
+    ok, out = run_pytest_tests(FASE123_TESTS)
+    tail = out.strip().splitlines()[-1] if out.strip() else "(no output)"
+    add("Self-validation (generator + injectors + detectors)", ok, tail, checks)
 
-    print("\n== Fase 4 matrix gates ==")
+    print("\n== Matrix gates ==")
     db = SQLiteDataManager(str(db_path(args.source)))
     db.connect()
     houses = args.houses or db.list_houses()
@@ -224,7 +237,7 @@ def main():
 
     print("\n== Summary ==")
     n_ok = sum(1 for _, label, _ in checks if label in ("OK", "INFO"))
-    for name, label, detail in checks:
+    for name, label, _detail in checks:
         print(f"  [{label}] {name}")
     failed = [name for name, label, _ in checks if label == "FAIL"]
     print(f"\n{len(checks)} gates: {n_ok} passed, {len(failed)} failed.")

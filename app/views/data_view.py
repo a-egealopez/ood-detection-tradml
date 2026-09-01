@@ -17,6 +17,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from components import breadcrumb, clickable_cards, colored_section_header
+from detectors.constants import DEFAULT_RANDOM_STATE
+from teaching.datasets import SyntheticDatasetGenerator
 from theme import (
     FAMILY_BOUNDARY,
     FAMILY_DISTANCE,
@@ -24,8 +26,6 @@ from theme import (
     SUCCESS,
     apply_layout,
 )
-
-from teaching.datasets import SyntheticDatasetGenerator
 
 DATA_2D = "2D Playground"
 DATA_CASAS = "CASAS Smart Home"
@@ -37,7 +37,7 @@ def _preview_2d() -> go.Figure:
         "blobs",
         n_samples=180,
         contamination=0.12,
-        random_state=42,
+        random_state=DEFAULT_RANDOM_STATE,
     )
     normal = y == 0
     fig = go.Figure()
@@ -120,7 +120,7 @@ def _render_casas_demo_config() -> None:
 
         try:
             houses = list_houses("real")
-        except Exception:  # noqa: BLE001 - DB may not exist until ingestion runs
+        except Exception:
             houses = []
         if not houses:
             st.warning("No houses found in the real database.")
@@ -163,63 +163,72 @@ def _render_casas_demo_config() -> None:
 
     st.markdown("#### Anomaly scenario")
     st.caption(
-        "Optionally inject coherent anomalies (point / contextual / collective) into "
-        "the synthetic stream. The injected days are treated as labels, so the ensemble "
-        "results can report AUROC. **control** injects nothing — it is the null control "
-        "the detectors should treat as noise. Only meaningful on **synthetic** data — "
-        "real homes have near-symmetric transitions that a reversal cannot exploit."
+        "Optionally inject coherent anomalies into the synthetic stream. "
+        "Injected days serve as labels for AUROC evaluation. "
+        "**control** = no injection (null baseline). "
+        "Only meaningful on **synthetic** data."
     )
+
+    st.markdown(
+        """
+        <style>
+        button.st-key-fx_scenario_card_control,
+        button.st-key-fx_scenario_card_point,
+        button.st-key-fx_scenario_card_contextual,
+        button.st-key-fx_scenario_card_collective {
+            color: #fafafa !important;
+        }
+        button.st-key-fx_scenario_card_control p,
+        button.st-key-fx_scenario_card_point p,
+        button.st-key-fx_scenario_card_contextual p,
+        button.st-key-fx_scenario_card_collective p {
+            color: #e0e0e0 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     scenario_specs = [
         {
             "id": "control",
             "icon": "🌿",
-            "title": "control",
-            "description": "Null control — nothing injected, detectors should "
-            "stay at chance (~0.5).",
+            "title": "Control",
+            "description": "Null baseline — nothing injected, detectors stay at chance (~0.5 AUROC).",
             "color": SUCCESS,
         },
         {
             "id": "point",
             "icon": "💥",
-            "title": "point",
-            "description": "Night burst: a day that is suddenly very loud — extra "
-            "events at 3-4 AM from one sensor.",
+            "title": "Point",
+            "description": "Night burst — extra events at 3–4 AM from one sensor (volume anomaly).",
             "color": PRIMARY,
         },
         {
             "id": "contextual",
             "icon": "🕐",
-            "title": "contextual",
-            "description": "Whole routine shifted S hours: an anomalous day happens "
-            "at the wrong time of day.",
+            "title": "Contextual",
+            "description": "Whole routine shifted by S hours — same events, wrong time of day.",
             "color": FAMILY_DISTANCE,
         },
         {
             "id": "collective",
             "icon": "🔀",
-            "title": "collective",
-            "description": "Intra-day sensor order partially reversed: the sequence "
-            "of rooms is wrong.",
+            "title": "Collective",
+            "description": "Intra-day sensor order partially reversed — same counts, broken transitions.",
             "color": FAMILY_BOUNDARY,
         },
     ]
-    scenario = clickable_cards(scenario_specs, key="fx_scenario")
+    scenario = clickable_cards(scenario_specs, key="fx_scenario", gap="large")
 
     if scenario != "control":
+        st.markdown("**Intensity**")
         st.segmented_control(
-            "Intensity",
+            "Intensity level",
             ["low", "medium", "high"],
             default="medium",
             key="fx_scenario_intensity",
-            help=(
-                "Contextual: hours the routine is shifted (1/3/5h). Collective: "
-                "fraction of positions taken from the reversed order (0.25/0.55/1.0)."
-            ),
-        )
-        st.caption(
-            "Contextual = routine at the wrong time of day (caught by Z-Score, HMM, "
-            "Hawkes). Collective = wrong room order (caught by the next-event Markov "
-            "model)."
+            label_visibility="collapsed",
         )
 
 

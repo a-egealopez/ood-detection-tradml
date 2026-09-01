@@ -27,22 +27,29 @@ matrices) are prepared once per (house, type, intensity, seed); only the per
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score
 
 from detectors import (
-    HMMDetector,
     HawkesDetector,
+    HMMDetector,
     IsolationForestDetector,
     MahalanobisDetector,
     MarkovSequenceDetector,
     PCAReconstructionDetector,
     ZScoreDetector,
 )
-from detectors.constants import DEFAULT_RANDOM_STATE
+from detectors.base import BaseDetector
+from detectors.constants import (
+    DEFAULT_CONTAMINATION,
+    DEFAULT_RANDOM_STATE,
+    DEFAULT_TRAIN_SPLIT,
+)
 from evaluation.event_injection import (
     COLLECTIVE_INTENSITIES,
     CONTEXTUAL_INTENSITIES,
@@ -57,14 +64,14 @@ from features import FeatureScaler, NextEventTransitionExtractor, TemporalFeatur
 
 # One detector per family the success criteria care about. The builders receive
 # the seed so stochastic detectors get a fresh draw per seed.
-DEFAULT_DETECTORS = {
-    "Z-Score": lambda seed: ZScoreDetector(),
-    "Mahalanobis": lambda seed: MahalanobisDetector(),
+DEFAULT_DETECTORS: dict[str, Callable[[int], BaseDetector]] = {
+    "Z-Score": lambda _: ZScoreDetector(),
+    "Mahalanobis": lambda _: MahalanobisDetector(),
     "Isolation Forest": lambda seed: IsolationForestDetector(random_state=seed),
-    "PCA Reconstruction": lambda seed: PCAReconstructionDetector(),
+    "PCA Reconstruction": lambda _: PCAReconstructionDetector(),
     "HMM": lambda seed: HMMDetector(random_state=seed),
-    "Hawkes": lambda seed: HawkesDetector(),
-    "Markov Sequence": lambda seed: MarkovSequenceDetector(),
+    "Hawkes": lambda _: HawkesDetector(),
+    "Markov Sequence": lambda _: MarkovSequenceDetector(),
 }
 
 
@@ -153,13 +160,13 @@ def prepare_house(df_house, train_split: float) -> CleanViews:
 
 def prepare_cell(
     views: CleanViews,
-    house_id: str,
+    _house_id: str,
     anomaly_type: str,
     intensity: str,
     seed: int,
     *,
-    train_split: float = 0.7,
-    contamination: float = 0.2,
+    train_split: float = DEFAULT_TRAIN_SPLIT,
+    contamination: float = DEFAULT_CONTAMINATION,
     intensity_fractions: dict | None = None,
 ) -> PreparedCell:
     """Inject (if needed) and re-extract the eval matrices for one seed."""
@@ -214,7 +221,7 @@ def prepare_cell(
         X_eval9=X_eval9,
         X_eval_hourly=X_eval_hourly,
         df_inj=df_inj,
-        df_train_events=df[df["date"].isin(train_dates)],
+        df_train_events=cast(pd.DataFrame, df[df["date"].isin(train_dates)]),
     )
 
 
@@ -229,7 +236,7 @@ def evaluate_detector(
     builder = DEFAULT_DETECTORS[detector]
     train_mask = views.train_mask
     if detector == "Markov Sequence":
-        det = builder(seed)
+        det = cast(MarkovSequenceDetector, builder(seed))
         # Reuse the house-level transition extractor (already fitted on the clean
         # training events) instead of refitting it for every cell.
         det.extractor = views.trans_extractor
@@ -273,8 +280,8 @@ def run_matrix(
     detectors=None,
     n_seeds: int = 10,
     seed_base: int = DEFAULT_RANDOM_STATE,
-    train_split: float = 0.7,
-    contamination: float = 0.2,
+    train_split: float = DEFAULT_TRAIN_SPLIT,
+    contamination: float = DEFAULT_CONTAMINATION,
 ) -> pd.DataFrame:
     """Full matrix as one row per (type, intensity, detector, seed)."""
     detectors = detectors or list(DEFAULT_DETECTORS.keys())

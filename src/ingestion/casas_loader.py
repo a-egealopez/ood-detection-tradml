@@ -13,7 +13,7 @@ from ingestion.sqlite_manager import SQLiteDataManager
 logger = logging.getLogger(__name__)
 
 
-def _convert_reading(reading: str):
+def _convert_reading(reading: str) -> tuple[str | None, float | None]:
     reading = str(reading).strip()
 
     if reading == "ON":
@@ -60,9 +60,9 @@ def load_casas_csv(csv_path: Path, house_id: str) -> pd.DataFrame:
         )
         df = df.dropna(subset=["timestamp"])
 
-    converted = df["reading"].apply(_convert_reading)
-    df["event_type"] = converted.apply(lambda t: t[0])
-    df["value"] = converted.apply(lambda t: t[1])
+    converted = [_convert_reading(r) for r in df["reading"]]
+    df["event_type"] = [t[0] for t in converted]
+    df["value"] = [t[1] for t in converted]
 
     n_bad_reading = df["event_type"].isna().sum()
     if n_bad_reading > 0:

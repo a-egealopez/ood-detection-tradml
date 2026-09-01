@@ -27,10 +27,18 @@ from components import (  # noqa: E402
     detector_card,
     family_header,
     read_param_values,
+    render_decision_boundary,
+    safe_fit_predict,
     section_title,
 )
-from mesh import contour_polylines, score_mesh  # noqa: E402
-from streamlit_config import DETECTOR_REGISTRY  # noqa: E402
+from detectors.constants import DEFAULT_RANDOM_STATE  # noqa: E402
+from detectors.factory import build_detector  # noqa: E402
+from mesh import score_mesh  # noqa: E402
+from streamlit_config import (  # noqa: E402
+    DETECTOR_DEFAULTS_LIST,
+    DETECTOR_REGISTRY,
+)
+from teaching.datasets import SyntheticDatasetGenerator  # noqa: E402
 from theme import (  # noqa: E402
     ANOMALY,
     ANOMALY_SCALE,
@@ -45,9 +53,6 @@ from theme import (  # noqa: E402
     family_color,
     score_scale_css,
 )
-
-from detectors.factory import build_detector  # noqa: E402
-from teaching.datasets import SyntheticDatasetGenerator  # noqa: E402
 
 # Detectors suited to 2-D teaching grids (sequential models are excluded).
 TEACHING_DETECTORS = [
@@ -132,7 +137,7 @@ def _add_covariance_overlay(fig: go.Figure, detector: Any, family: str) -> None:
         else:
             return
         _add_ellipse_traces(fig, mean, cov)
-    except Exception:  # noqa: BLE001 - overlay is cosmetic; never break the chart
+    except Exception:
         logger.warning("Could not draw covariance overlay for %s", family)
 
 
@@ -266,7 +271,7 @@ def _add_zscore_band(fig: go.Figure, detector: Any) -> None:
             bgcolor="rgba(0,0,0,0.3)",
             borderpad=3,
         )
-    except Exception:  # noqa: BLE001 - overlay is cosmetic; never break the chart
+    except Exception:
         logger.warning("Could not draw Z-Score band overlay")
 
 
@@ -289,7 +294,7 @@ def _build_figure(
 
     fig = go.Figure()
 
-    xx, yy, zz, threshold = score_mesh(detector, x_range, y_range)
+    xx, yy, zz, _ = score_mesh(detector, x_range, y_range)
 
     fig.add_trace(
         go.Contour(
@@ -305,35 +310,9 @@ def _build_figure(
             hoverinfo="skip",
         )
     )
-    # Decision boundary: the iso-line of the score field at the detector's split
-    # threshold. Extracted with marching squares and drawn as plain Scatter lines
-    # (a single-level Plotly contour isoline can silently not render), as a crisp
-    # three-layer "seam": dark outline separates it from bright zones, the family
-    # accent carries the identity, a white core keeps it visible on dark zones.
-    polylines = contour_polylines(zz, threshold, x_range, y_range)
-    if polylines:
-        for line_color, width in [
-            ("rgba(8, 12, 20, 0.85)", 5.0),
-            (boundary_color, 3.0),
-            ("rgba(255, 255, 255, 0.95)", 1.2),
-        ]:
-            bx: list[float | None] = []
-            by: list[float | None] = []
-            for pl in polylines:
-                bx.extend(pl[:, 0].tolist())
-                by.extend(pl[:, 1].tolist())
-                bx.append(None)
-                by.append(None)
-            fig.add_trace(
-                go.Scatter(
-                    x=bx,
-                    y=by,
-                    mode="lines",
-                    line={"color": line_color, "width": width},
-                    hoverinfo="skip",
-                    showlegend=False,
-                )
-            )
+    # Decision boundary via shared helper (three-layer seam)
+    for trace in render_decision_boundary(detector, x_range, y_range, boundary_color):
+        fig.add_trace(trace)
     if family in ("covariance_empirical", "covariance_robust", "covariance_elliptic"):
         _add_covariance_overlay(fig, detector, family)
     elif family == "knn":
@@ -419,8 +398,7 @@ def _fit_and_score(
     detector_name: str, params: dict[str, float], X: np.ndarray, y_true: np.ndarray
 ) -> dict[str, Any]:
     detector = build_detector(detector_name, params)
-    detector.fit(X)
-    y_pred, scores = detector.predict(X)
+    y_pred, scores = safe_fit_predict(detector, X, X)
     try:
         auroc = roc_auc_score(y_true, scores)
     except ValueError:
@@ -437,7 +415,7 @@ def _load_dataset(
         dataset_key,
         n_samples=n_samples,
         contamination=contamination,
-        random_state=42,
+        random_state=DEFAULT_RANDOM_STATE,
     )
     return X, y_true
 
@@ -469,28 +447,45 @@ def _compute_card(
     return {"auroc": result["auroc"], "fig": fig}
 
 
+def _toggle_detector_2d(name: str) -> None:
+    """Flip a detector's membership in the 2D ensemble selection."""
+    current = set(st.session_state.get("det_names_2d", DETECTOR_DEFAULTS_LIST))
+    current.symmetric_difference_update([name])
+    st.session_state["det_names_2d"] = [n for n in TEACHING_DETECTORS if n in current]
+
+
 def _render_detector_card(
     detector_name: str,
     dataset_key: str,
     n_samples: int,
     contamination: float,
 ) -> None:
-    """Fit, chart and render one detector as a card (st.cache_data keyed by config)."""
+    """Fit, chart and render one detector as a card with toggle (st.cache_data keyed by config)."""
     spec = DETECTOR_REGISTRY[detector_name]
     prefix = f"{detector_name}_{dataset_key}_{n_samples}"
     params = read_param_values(spec.params, prefix)
-    # One global contamination control (top of the page) drives every detector's
-    # assumed anomaly ratio, so the per-card sliders don't repeat across the grid.
     if "contamination" in params:
         params["contamination"] = contamination
-    widget_params = tuple(p for p in spec.params if p.kwarg != "contamination")
+    widget_params = tuple(p for p in spec.params if p.arg_name != "contamination")
 
     param_items = tuple(sorted(params.items()))
     result = _compute_card(
         detector_name, param_items, dataset_key, n_samples, contamination
     )
-    # Mirror into session state so the ranking section can reuse the same AUROC.
     st.session_state[f"cache_{detector_name}"] = result
+
+    selected = detector_name in st.session_state.get("det_names_2d", DETECTOR_DEFAULTS_LIST)
+
+    # Toggle button (consistent with CASAS detect step)
+    st.button(
+        f"{'✅' if selected else '▫️'} {detector_name}",
+        key=f"toggle_2d_{detector_name}",
+        use_container_width=True,
+        type="primary" if selected else "secondary",
+        on_click=_toggle_detector_2d,
+        args=(detector_name,),
+        help="Click to include / exclude this detector from the ensemble.",
+    )
 
     detector_card(
         name=detector_name,
@@ -532,16 +527,22 @@ def render_playground_view() -> None:
     breadcrumb([("Data", True), ("Features", True), ("Detect", True)])
     st.markdown("## 2D Playground: How Anomaly Detectors Work")
 
+    # Initialize detector selection for ensemble (consistent with CASAS)
+    if "det_names_2d" not in st.session_state:
+        st.session_state["det_names_2d"] = list(DETECTOR_DEFAULTS_LIST)
+
     col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
         dataset_key = st.selectbox(
             "Select a dataset:",
             options=list(SyntheticDatasetGenerator.DATASETS.keys()),
             label_visibility="collapsed",
+            key="playground_dataset",
         )
     with col2:
         n_samples = st.slider(
-            "Samples", 100, 500, 300, step=50, label_visibility="collapsed"
+            "Samples", 100, 500, 300, step=50, label_visibility="collapsed",
+            key="playground_n_samples",
         )
     with col3:
         contamination_global = (
@@ -549,6 +550,8 @@ def render_playground_view() -> None:
             / 100.0
         )
 
+    # Store for ensemble step
+    st.session_state["playground_contamination"] = contamination_global
     dataset_key_internal = SyntheticDatasetGenerator.DATASETS[dataset_key]
 
     st.markdown("---")
@@ -557,7 +560,7 @@ def render_playground_view() -> None:
     st.caption(
         "The line with the dark edge is the **decision boundary** — the detector's "
         "split between normal and anomalous regions. The background shades the "
-        "anomaly score of every region."
+        "anomaly score of every region. Click a card to toggle ensemble inclusion."
     )
     st.markdown(
         "<div class='score-legend'>"
@@ -578,6 +581,12 @@ def render_playground_view() -> None:
         )
 
     st.markdown("---")
+    n_selected = len(st.session_state.get("det_names_2d", DETECTOR_DEFAULTS_LIST))
+    st.caption(
+        f"**{n_selected} of {len(TEACHING_DETECTORS)}** detectors selected — those will "
+        "feed the ensemble in the next step."
+    )
+
     section_title("Detector Ranking by AUROC")
 
     ranking = sorted(

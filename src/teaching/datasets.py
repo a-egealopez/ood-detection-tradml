@@ -3,6 +3,8 @@ Didactic synthetic dataset generator for anomaly teaching.
 Uses scikit-learn to generate data with known geometries.
 """
 
+from typing import ClassVar
+
 import numpy as np
 from sklearn.datasets import (
     make_blobs,
@@ -10,7 +12,6 @@ from sklearn.datasets import (
     make_moons,
     make_swiss_roll,
 )
-from typing import ClassVar
 
 from detectors.constants import DEFAULT_RANDOM_STATE
 
@@ -62,12 +63,13 @@ class SyntheticDatasetGenerator:
         n_inliers = int(n_samples * (1 - contamination))
         n_outliers = n_samples - n_inliers
 
-        X_inliers, _ = make_blobs(
+        blobs = make_blobs(
             n_samples=n_inliers,
             centers=centers,
             cluster_std=1.0,
             random_state=rng,
         )
+        X_inliers = np.asarray(blobs[0])
 
         X_outliers = rng.uniform(-8, 8, size=(n_outliers, 2))
 
@@ -145,11 +147,3 @@ class SyntheticDatasetGenerator:
         X, y_true = X[perm], y_true[perm]
 
         return X, y_true
-
-
-if __name__ == "__main__":
-    gen = SyntheticDatasetGenerator()
-    for name, key in gen.DATASETS.items():
-        X, y = gen.generate(key, n_samples=300, contamination=0.1)
-        print(f"{name}")
-        print(f"  Shape: {X.shape}, Anomalías: {y.sum()} / {len(y)}\n")

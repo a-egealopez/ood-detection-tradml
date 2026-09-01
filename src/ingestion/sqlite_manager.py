@@ -123,7 +123,7 @@ class SQLiteDataManager:
             raise RuntimeError("You must call connect() before query_to_dataframe()")
 
         try:
-            df = pd.read_sql_query(sql, self.conn, params=params)
+            df = pd.read_sql_query(sql, self.conn, params=list(params))
             if "timestamp" in df.columns:
                 df["timestamp"] = pd.to_datetime(df["timestamp"])
             return df
@@ -153,17 +153,21 @@ class SQLiteDataManager:
             where = "WHERE house_id = ?" if house_id else ""
             params = (house_id,) if house_id else ()
 
-            cursor.execute(f"SELECT COUNT(*) FROM sensor_events {where}", params)
+            # `where` is a fixed constant ("WHERE house_id = ?" or ""), never
+            # user input; values are passed as bound parameters.
+            cursor.execute(
+                f"SELECT COUNT(*) FROM sensor_events {where}", params  # noqa: S608
+            )
             count = cursor.fetchone()[0]
 
             cursor.execute(
-                f"SELECT MIN(timestamp), MAX(timestamp) FROM sensor_events {where}",
+                f"SELECT MIN(timestamp), MAX(timestamp) FROM sensor_events {where}",  # noqa: S608
                 params,
             )
             min_ts, max_ts = cursor.fetchone()
 
             cursor.execute(
-                f"SELECT COUNT(DISTINCT sensor_id) FROM sensor_events {where}", params
+                f"SELECT COUNT(DISTINCT sensor_id) FROM sensor_events {where}", params  # noqa: S608
             )
             n_sensors = cursor.fetchone()[0]
 
@@ -184,40 +188,3 @@ class SQLiteDataManager:
             self.conn.close()
             self.conn = None
             logger.info("Conexión a la base de datos cerrada")
-
-
-if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-
-    db = SQLiteDataManager("data/sensor_data_test.db")
-    db.connect()
-    db.create_tables()
-
-    batch = [
-        {
-            "house_id": "aruba",
-            "timestamp": "2024-01-01 10:30:00",
-            "sensor_id": "M001",
-            "event_type": "motion",
-            "value": 1.0,
-        },
-        {
-            "house_id": "aruba",
-            "timestamp": "2024-01-01 10:31:00",
-            "sensor_id": "M001",
-            "event_type": "motion",
-            "value": 0.0,
-        },
-    ]
-    count1 = db.insert_batch(batch)
-    count2 = db.insert_batch(batch)
-
-    print(f" Primera inserción: {count1} eventos nuevos")
-    print(f"s Segunda inserción (idempotente): {count2} eventos nuevos")
-    assert count2 == 0
-
-    print(db.get_stats())
-    db.close()

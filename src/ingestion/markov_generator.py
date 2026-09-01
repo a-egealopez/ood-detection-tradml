@@ -1,26 +1,15 @@
 """Markov-chain event generator for synthetic CASAS-style data.
 
-Purpose
--------
-The previous fixture generator drew each event's sensor independently of its
-neighbours (``rng.choice``), so the resulting streams had no sequential structure
-for the order/transition detectors (next-event Markov, n-gram, ``MarkovSequence``)
-to learn. This generator produces the structure on purpose:
+The fixtures must have structure for the sequential detectors to learn:
 
-1. A **directed movement graph** per house whose transition weights are strongly
-   asymmetric and depend on the *hour band* (morning / midday / afternoon / night).
-   Asymmetry is mandatory: reversing or shuffling the intra-day order (the
-   collective injector) only produces rare transitions when common transitions
-   are not symmetric.
-2. A **sticky latent day regime** (Markov chain with ``P(stay) ~ 0.75`` and 2-3
-   states) that modulates the daily event volume and night ratio, giving the daily
-   features day-to-day autocorrelation (structure the HMM/regime detectors can use).
+1. A directed movement graph per house with strongly asymmetric transition weights
+   that depend on the hour band. Reversing a day's order (collective injector) only
+   creates rare transitions when the common ones are not symmetric, so asymmetry is
+   mandatory.
+2. A sticky latent day regime (P(stay) ~ 0.75) that scales daily volume and night
+   ratio, giving the daily features day-to-day autocorrelation for HMM/regime models.
 
-Output
-------
-Functions return event rows in the exact CSV schema the loader expects
-(``date, time, sensor_id, reading``, no header) so ``casas_loader`` keeps working
-unchanged.
+Output rows use the exact loader CSV schema (``date, time, sensor_id, reading``).
 """
 
 from __future__ import annotations
@@ -35,13 +24,10 @@ MOTION_SENSORS = ("Bedroom", "Kitchen", "LivingRoom")
 BAND_MORNING, BAND_MIDDAY, BAND_AFTERNOON, BAND_NIGHT = range(4)
 BAND_NAMES = ("morning", "midday", "afternoon", "night")
 
-# Probability of picking a uniformly random sensor instead of following the graph.
-# Kept small: the graph's structure must dominate or the transition model learns
-# noise and the collective injector has nothing rare to exploit.
+# Small uniform mix so the graph's structure dominates (else a reversal has nothing rare).
 NOISE = 0.10
 
-# Sticky latent day regimes. A regime scales the daily event count and the night
-# ratio. P(stay) high => long runs => autocorrelated daily features.
+# Sticky latent day regimes: scale daily event count and night ratio.
 REGIMES: list[dict] = [
     {"name": "quiet", "event_factor": 0.70, "night_offset": -0.02},
     {"name": "typical", "event_factor": 1.00, "night_offset": 0.00},
@@ -49,11 +35,8 @@ REGIMES: list[dict] = [
 ]
 REGIME_STAY_PROB = 0.75
 
-# Diurnal activity curve for the day-time hours (8-21): morning peak, midday
-# lull, evening peak. This gives the per-hour profile structure, so a circular
-# time shift (the contextual injector) moves events between busy and quiet hours
-# and the per-hour detectors (Hawkes) can see it. Without the curve the day hours
-# are flat and a shift is invisible to hourly models.
+# Diurnal activity curve for day-time hours (8-21): morning peak, midday lull,
+# evening peak. Keeps hourly models sensitive to a circular shift (contextual).
 DAY_HOUR_WEIGHTS: list[float] = [
     0.90, 1.30, 1.10, 1.00, 0.95, 0.85, 0.90, 1.00, 1.05, 1.20, 1.35, 1.25, 1.15, 1.00,
 ]  # hours 8..21
@@ -70,17 +53,10 @@ def hour_to_band(hour: int) -> int:
     return BAND_NIGHT
 
 
-# Base asymmetric transition weights: ``weights[band][source][target]``, higher =
-# more likely. Each source row has one dominant target and several small ones, so
-# the reverse/rare transitions the collective injector produces stay improbable.
-#
-# The between-room structure is a *directed cycle*: Bedroom -> Kitchen ->
-# LivingRoom -> Bedroom, with the backward edges (Kitchen->Bedroom,
-# LivingRoom->Kitchen, Bedroom->LivingRoom) kept close to zero. This directional
-# asymmetry is mandatory: reversing a day's sequence (the collective injector)
-# turns the common forward transitions into the rare backward ones, which is what
-# makes the order anomaly visible to the transition detectors. Without it, a
-# reversed day is indistinguishable from a normal one.
+# ``weights[band][source][target]``, higher = more likely. One dominant target per
+# source row. The rooms form a directed cycle (Bedroom -> Kitchen -> LivingRoom ->
+# Bedroom) with backward edges near zero; this asymmetry makes reversed days
+# (collective injector) produce rare transitions, which is what exposes them.
 _BASE_WEIGHTS: dict[int, dict[str, dict[str, float]]] = {
     BAND_MORNING: {
         "Bedroom": {"Bedroom": 5.0, "Kitchen": 30.0, "LivingRoom": 1.0, "OutsideDoor": 1.0},
@@ -110,11 +86,10 @@ _BASE_WEIGHTS: dict[int, dict[str, dict[str, float]]] = {
 
 
 def build_movement_graph(profile: dict) -> dict[tuple[int, str], dict[str, float]]:
-    """Return the directed movement graph: ``(band, source) -> {target: weight}``.
+    """Directed movement graph: ``(band, source) -> {target: weight}``.
 
-    ``profile`` may carry a ``door_activity`` multiplier (default 1.0) that scales
-    all weights into/out of the OutsideDoor node, giving each house a slightly
-    different daily-routine shape while keeping the mandatory asymmetry.
+    ``profile["door_activity"]`` (default 1.0) scales weights into/out of
+    OutsideDoor, giving each house a distinct routine while keeping asymmetry.
     """
     door_factor = float(profile.get("door_activity", 1.0))
     graph: dict[tuple[int, str], dict[str, float]] = {}
@@ -136,10 +111,9 @@ def transition_probabilities(graph, band: int, source: str) -> dict[str, float]:
 
 
 def graph_entropy_ratio(graph: dict) -> float:
-    """Entropy of the generated graph, averaged over (band, source) rows.
+    """Mean transition entropy over (band, source) rows, normalized by log2(n_sensors).
 
-    Normalized by ``log2(n_sensors)`` so 1.0 = uniform random transitions. The DoD
-    gate requires this below 0.70: the graph must be peaked (structured), not flat.
+    DoD gate requires < 0.70 (peaked graph, not uniform).
     """
     n_sensors = len(SENSORS)
     ratios = []
@@ -153,8 +127,7 @@ def graph_entropy_ratio(graph: dict) -> float:
 
 
 def draw_next_sensor(rng, prev_sensor: str, hour: int, graph: dict, noise: float = NOISE) -> str:
-    """Walk the graph one step: sample the next sensor given the previous one and
-    the current hour's band, mixed with a small uniform component."""
+    """Sample the next sensor from the graph given the previous sensor and hour band."""
     band = hour_to_band(hour)
     probs = np.array([graph[(band, prev_sensor)][target] for target in SENSORS], dtype=float)
     probs = probs / probs.sum()
@@ -169,7 +142,6 @@ def draw_regime_sequence(rng, n_days: int) -> list[dict]:
     for _ in range(n_days):
         states.append(REGIMES[current])
         if rng.random() >= REGIME_STAY_PROB:
-            # Move to one of the other states uniformly.
             current = (current + 1 + int(rng.integers(0, len(REGIMES) - 1))) % len(REGIMES)
     return states
 
@@ -189,11 +161,10 @@ def generate_daily_events(
     regime: dict,
     noise: float = NOISE,
 ) -> list[tuple[str, str, str]]:
-    """Generate one day of events as ``(time_str, sensor_id, reading)`` tuples.
+    """One day of events as ``(time_str, sensor_id, reading)`` tuples.
 
-    Timestamps are drawn first (mixing daytime/night-time hours per ``night_ratio``
-    and the regime's offset), then a Markov walk on the movement graph assigns each
-    event its sensor, conditioned on the event's hour band.
+    Draw timestamps (day/night hours per ``night_ratio``), then walk the graph to
+    assign each event a sensor conditioned on its hour band.
     """
     n_events = max(1, int(rng.poisson(events_mean * regime["event_factor"])))
     night_ratio = min(0.5, max(0.01, night_ratio + regime["night_offset"]))
@@ -241,17 +212,16 @@ def generate_daily_events(
 
 def generate_house_stream(
     *,
-    house_id: str,
+    house_id: str,  # noqa: ARG001 - part of the public API signature
     events_mean: int,
     night_ratio: float,
     n_days: int,
     seed: int,
     start_date: str = "2024-01-01",
 ) -> pd.DataFrame:
-    """Generate the full event stream for one house as a DataFrame in CSV schema.
+    """Full event stream for one house as a DataFrame in CSV schema.
 
-    The latent regime is drawn per day, then each day walks the movement graph.
-    Deterministic for a given seed. Returns ``(date, time, sensor_id, reading)``.
+    Draws per-day regimes, then walks the graph each day. Deterministic per seed.
     """
     rng = np.random.default_rng(seed)
     graph = build_movement_graph({"door_activity": 1.0})
@@ -279,38 +249,3 @@ def first_order_autocorrelation(values: np.ndarray) -> float:
     if x_std == 0 or y_std == 0:
         return 0.0
     return float(((x - x.mean()) * (y - y.mean())).mean() / (x_std * y_std))
-
-
-if __name__ == "__main__":
-    rng = np.random.default_rng(0)
-    graph = build_movement_graph({"door_activity": 1.0})
-    entropy_ratio = graph_entropy_ratio(graph)
-    print(f" Graph entropy ratio: {entropy_ratio:.3f} (gate < 0.70)")
-    assert entropy_ratio < 0.70, "movement graph is not peaked enough"
-
-    stream = generate_house_stream(
-        house_id="aruba", events_mean=180, night_ratio=0.08, n_days=60, seed=1
-    )
-    daily_counts = (
-        pd.to_datetime(stream["date"])
-        .value_counts()
-        .sort_index()
-        .astype(float)
-        .values
-    )
-    ac1 = first_order_autocorrelation(daily_counts)
-    print(f" AC1(n_events): {ac1:.3f} (gate |AC1| >= 0.30)")
-    assert abs(ac1) >= 0.30, "daily feature lacks lag-1 autocorrelation"
-
-    n_transitions = 0
-    rare = 0
-    for date, group in stream.groupby("date"):
-        seq = group.sort_values("time")["sensor_id"].tolist()
-        for source, target in zip(seq[:-1], seq[1:]):
-            n_transitions += 1
-            band = hour_to_band(0)  # rough: skip hour conditioning here
-            if transition_probabilities(graph, band, source)[target] < 0.10:
-                rare += 1
-    print(f" Rare transitions (unconditional proxy): {rare} / {n_transitions}")
-    print(f" Events: {len(stream)}, days: {stream['date'].nunique()}")
-    print(" Validation OK")
