@@ -14,7 +14,6 @@ scipy = "^1.11"
 streamlit = "^1.30"
 plotly = "^5.17"
 hmmlearn = "^0.2.7"
-tick = "^0.7.1"
 pyod = "^1.1.1"
 
 [tool.poetry.dev-dependencies]
