@@ -1,7 +1,7 @@
 """CLI: run the full anomaly-type x intensity x detector evaluation matrix.
 
-The matrix evaluation (``evaluation.matrix_evaluation``) checks the coherence
-story of ``docs/anomaly_taxonomy.md`` across every house:
+The matrix evaluation (``evaluation.matrix_evaluation``) checks the coherent
+evaluation story across every house:
 
 - point        -> event-level night burst; distance family wins
 - contextual   -> HMM / Hawkes / Z-Score win, order family blind

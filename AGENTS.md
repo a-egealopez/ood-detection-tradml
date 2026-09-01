@@ -87,7 +87,6 @@ ood-detection-tradml/
 │   ├── conftest.py             # shared fixtures (Markov stream, house stream, samples)
 │   ├── unit/                   # fast property tests (detectors, injectors, generator, scaler, ...)
 │   └── functional/             # acceptance criteria / behavior (burst, regime change, reversal, smoke)
-├── docs/                       # anomaly taxonnomy & coherent-evaluation protocol (anomaly_taxonomy.md)
 ├── data/                       # gitignored: real/, synthetic/, *.db (generated at runtime)
 ├── logs/                       # gitignored: app.log
 ├── .gitattributes              # *.py text eol=lf — keep line endings normalized
@@ -143,8 +142,8 @@ There is **no feature-level injection anywhere**: every anomaly type is injected
 *raw event stream* in the Data step / `data_access.apply_injection`, and the daily
 features are re-extracted afterwards.
 
-**Coherent-anomaly evaluation** (see `docs/anomaly_taxonomy.md` for the operational
-definitions and the measured matrix):
+**Coherent-anomaly evaluation** (operational definitions in
+`src/evaluation/event_injection.py`; measured matrix in `scripts/run_matrix.py`):
 - `src/evaluation/event_injection.py` injects the three event-level anomaly types,
   each intensity-graded (low/medium/high):
   `inject_point_events` *adds* a night burst (3-4 AM) from one sensor on an anomalous

@@ -4,7 +4,7 @@ These operate on the *raw event stream* (not the extracted feature matrix), so t
 anomaly is introduced at the level where the sequential/order detectors live, and
 the features are re-extracted afterwards. Each injector changes the marginal
 statistics it is *supposed* to change and preserves the ones the other family of
-detectors would otherwise catch "by accident" (see ``docs/anomaly_taxonomy.md``):
+detectors would otherwise catch "by accident":
 
 - ``inject_point_events``: *adds* a burst of extra events from one sensor at a fixed
   unusual hour (3-4 AM) on an otherwise normal day — a "loud" day whose aggregate

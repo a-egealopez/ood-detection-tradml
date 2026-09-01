@@ -18,8 +18,6 @@ All three anomaly types are injected on the *raw event stream* at intensity
 low/medium/high and the features are re-extracted afterwards (there is no
 feature-level injection anywhere in the evaluation).
 
-See ``docs/anomaly_taxonomy.md`` for the expected winner/blind matrix.
-
 Cost note: the shared inputs (feature views, transition model, injected eval
 matrices) are prepared once per (house, type, intensity, seed); only the per
 -detector fit/predict is repeated inside the seed loop.
