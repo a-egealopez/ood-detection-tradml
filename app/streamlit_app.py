@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from components import advance_step, back_step, guided_stepper
 from config import setup_logging
+from data_access import ensure_synthetic_db
 from detectors import EnsembleDetector
 from detectors.constants import DEFAULT_ENSEMBLE_THRESHOLD_PERCENTILE, DEFAULT_RANDOM_STATE
 from detectors.factory import build_detectors
@@ -32,6 +33,10 @@ from views import (
 st.set_page_config(page_title="Anomaly Detection - CASAS", layout="wide")
 inject_theme()
 logger = setup_logging()
+
+# Provision synthetic CASAS data on first run (data/ is gitignored, so a fresh
+# deploy has no engine database). Best-effort: failures never break the UI.
+ensure_synthetic_db()
 
 st.title("Anomaly Detection: ML on Event-Driven Time Series")
 

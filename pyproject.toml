@@ -1,8 +1,8 @@
 [tool.poetry]
 name = "ood-detection-tradml"
 version = "0.1.0"
-description = "Didactic unsupervised anomaly / out-of-distribution detection with classical ML: synthetic scikit-learn datasets and event-driven time series from the CASAS dementia dataset."
-authors = ["Your Name <your-email@example.com>"]
+description = "Unsupervised out-of-distribution detection on event-driven smart-home time series with classical ML and a coherent synthetic-anomaly evaluation protocol."
+authors = ["a-egealopez"]
 license = "MIT"
 
 [tool.poetry.dependencies]

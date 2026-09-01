@@ -35,6 +35,8 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
+from features.common import event_sequence
+
 # Night window where displaced events are parked (02:00-05:00). Only used by the
 # DoD proxy checks; the contextual injector itself shifts whole days circularly.
 DISPLACEMENT_WINDOW = (2, 5)
@@ -277,7 +279,8 @@ def transition_asymmetry(df: pd.DataFrame, extractor=None) -> float:
     reversal injector has nothing to exploit there by construction.
     """
     if extractor is not None:
-        sequence = extractor._sequence(df)
+        token_col = getattr(extractor, "token_col", "sensor_id")
+        sequence = event_sequence(df, token_col)
     else:
         df = df.copy()
         df["timestamp"] = pd.to_datetime(df["timestamp"])

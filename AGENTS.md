@@ -87,6 +87,7 @@ ood-detection-tradml/
 │   ├── conftest.py             # shared fixtures (Markov stream, house stream, samples)
 │   ├── unit/                   # fast property tests (detectors, injectors, generator, scaler, ...)
 │   └── functional/             # acceptance criteria / behavior (burst, regime change, reversal, smoke)
+├── docs/                       # anomaly taxonnomy & coherent-evaluation protocol (anomaly_taxonomy.md)
 ├── data/                       # gitignored: real/, synthetic/, *.db (generated at runtime)
 ├── logs/                       # gitignored: app.log
 ├── .gitattributes              # *.py text eol=lf — keep line endings normalized
