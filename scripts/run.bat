@@ -3,11 +3,29 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0.."
 
 set SKIP_SETUP=0
-set SOURCE=real
+set SOURCE=auto
 
 for %%A in (%*) do (
     if "%%A"=="--skip-setup" set SKIP_SETUP=1
     if "%%A"=="--synthetic" set SOURCE=synthetic
+    if "%%A"=="--real" set SOURCE=real
+)
+
+if "%SOURCE%"=="auto" (
+    if exist "data\real\casas_*_raw.csv" (
+        set SOURCE=real
+        echo [1/4] Real CASAS CSVs found in data\real\ - using real data (use --synthetic to force^).
+    ) else (
+        set SOURCE=synthetic
+        echo [1/4] No real CASAS CSVs in data\real\ - using synthetic data (--real to require data^).
+    )
+)
+
+if "%SOURCE%"=="real" if not exist "data\real\casas_*_raw.csv" (
+    echo [ERROR] --real requested but no data\real\casas_*_raw.csv found. 1>&2
+    echo         Download the WSU CASAS datasets into data\real\ and retry, 1>&2
+    echo         or run without --real to use the synthetic fixtures. 1>&2
+    exit /b 1
 )
 
 if %SKIP_SETUP%==0 (
@@ -30,14 +48,6 @@ call venv\Scripts\activate.bat
 if %SKIP_SETUP%==0 (
     echo [2/4] Installing dependencies...
     pip install -q -r requirements.txt
-    if errorlevel 1 (
-        echo [WARN] Full install failed ^(usually 'tick'^). Retrying without it, then tick last...
-        findstr /v /i /r "^tick" requirements.txt > "%TEMP%\req_without_tick.txt"
-        pip install -q -r "%TEMP%\req_without_tick.txt"
-        del "%TEMP%\req_without_tick.txt"
-        pip install -q tick
-        if errorlevel 1 echo [WARN] 'tick' could not be built; the Hawkes detector will be unavailable.
-    )
 )
 
 set PYTHONPATH=%cd%\src;%PYTHONPATH%

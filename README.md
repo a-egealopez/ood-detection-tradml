@@ -1,7 +1,6 @@
 # Unsupervised Out-of-Distribution Detection on Smart-Home Event Streams
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://ood-detection-tradml.streamlit.app/)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.3%2B-orange.svg)](https://scikit-learn.org)
 [![Tests](https://img.shields.io/badge/tests-68%20pytest-green.svg)](scripts/verify_pipeline.py)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -23,6 +22,11 @@ git clone https://github.com/a-egealopez/ood-detection-tradml.git
 cd ood-detection-tradml
 scripts/run.sh          # bootstrap venv, load data, launch the app (Linux/WSL)
 ```
+
+`run.sh` / `run.bat` auto-detect the data source: if real CASAS CSVs are present
+under `data/real/` they are used; on a fresh clone (no `data/`) the app falls back
+to the synthetic fixtures, so the clone works out of the box. Pass `--synthetic`
+or `--real` to force either source explicitly.
 
 ## Quick links
 
@@ -72,6 +76,16 @@ raw event stream (timestamp, sensor_id, event_type, value)
 The four CASAS houses (`aruba`, `cairo`, `milan`, `tulum`) are available with
 synthetic fixtures that the app self-provisions on first launch.
 
+**Using the real CASAS data** (optional): the four houses
+(`aruba`, `cairo`, `milan`, `tulum`) are published by the WSU CASAS project under
+CC-BY-4.0 (Cook, 2025, DOI: [10.5281/zenodo.17180309](https://doi.org/10.5281/zenodo.17180309)).
+`scripts/fetch_casas_data.py` downloads `new_labeled_data.zip`, converts the raw
+motion/door streams into `data/real/casas_{aruba,cairo,milan,tulum}_raw.csv` in the
+loader's schema, and drops activity labels and temperature readings. `data/real/` is
+gitignored, so a clone never ships the data; `run.sh`/`run.bat` pick it up
+automatically, or load it manually with `python src/ingestion/casas_loader.py --source real`.
+The real homes cover 2009–2011 with 27–34 motion/door sensors per house.
+
 ## Feature extractors
 
 `src/features/event_driven_extractors.py` exposes four extractors, each
@@ -117,9 +131,11 @@ sequential one catches order changes.
   is valid for counts, not for z-scored continuous values.
 - **Source-aware gates**: the collective (order-reversal) gate is enforced only
   when the stream's transitions are directional. `transition_asymmetry` is ≈ 0.35
-  on the synthetic houses and ≈ 0.95 on the real CASAS homes, where room-to-room
-  movement is near-symmetric; on symmetric data the collective gates are reported
-  as informational instead of failing.
+  on the synthetic houses and 0.68–0.83 on the real CASAS homes (aruba 0.68, cairo
+  0.83, milan 0.73, tulum 0.80) — below the 0.85 directionality threshold, so the
+  reversal injector does produce rare transitions on these real streams. On
+  near-symmetric data the collective gates are reported as informational instead
+  of failing.
 
 ## Results
 
@@ -138,6 +154,10 @@ consistent across intensity levels:
 self-validation plus the matrix gates) and fails the run if any break.
 
 ## Detectors
+
+13 detector classes compose the public API (15 registered variants in the factory —
+OC-SVM is registered per kernel and Isolation Forest has an `sliced_path` extended
+variant).
 
 | Detector | Family | Basis |
 |---|---|---|
@@ -158,7 +178,7 @@ self-validation plus the matrix gates) and fails the run if any break.
 ```
 app/        Streamlit UI (thin layer; no ML logic)
 src/        detectors, features, evaluation, ingestion, teaching datasets
-scripts/    run.sh / run.bat, evaluation CLI, matrix CLI, verification gates
+scripts/    run.sh / run.bat, data fetch, evaluation CLI, matrix CLI, verification gates
 tests/      pytest suite (unit + functional)
 ```
 
@@ -166,6 +186,7 @@ tests/      pytest suite (unit + functional)
 
 | Task | Command |
 |---|---|
+| Download real CASAS data | `python scripts/fetch_casas_data.py` (Zenodo, CC-BY-4.0) |
 | Per-house evaluation report (real data) | `python scripts/run_evaluation.py --source real` |
 | Type × intensity × detector matrix | `python scripts/run_matrix.py --source synthetic` |
 | Verification gates (exit ≠ 0 on failure) | `python scripts/verify_pipeline.py --source synthetic` |
@@ -182,10 +203,11 @@ tests/      pytest suite (unit + functional)
 
 1. Chandola, V., Banerjee, A., and Kumar, V. **Anomaly Detection: A Survey.** *ACM Computing Surveys* 41(3), Article 15, 2009. doi:[10.1145/1541880.1541882](https://doi.org/10.1145/1541880.1541882).
 2. Cook, D. J., Crandall, A. S., Thomas, B. L., and Krishnan, N. C. **CASAS: A Smart Home in a Box.** *IEEE Computer* 46(7):62–69, 2013. doi:[10.1109/MC.2012.328](https://doi.org/10.1109/MC.2012.328).
-3. Liu, F. T., Ting, K. M., and Zhou, Z.-H. **Isolation Forest.** *Proc. 8th IEEE ICDM*, 413–422, 2008. doi:[10.1109/ICDM.2008.17](https://doi.org/10.1109/ICDM.2008.17).
-4. Hawkes, A. G. **Spectra of Some Self-Exciting and Mutually Exciting Point Processes.** *Biometrika* 58(1):83–90, 1971. See also Ogata, Y., *Journal of the American Statistical Association* 83(401):9–27, 1988, for the forward-recursion likelihood this project implements in numpy.
-5. Rabiner, L. R. **A Tutorial on Hidden Markov Models and Selected Applications in Speech Recognition.** *Proceedings of the IEEE* 77(2):257–286, 1989.
-6. Du, M., Li, F., Zheng, G., and Srikumar, V. **DeepLog: Anomaly Detection and Diagnosis from System Logs through Deep Learning.** *Proc. ACM SIGSAC CCS*, 1285–1298, 2017. doi:[10.1145/3133956.3134015](https://doi.org/10.1145/3133956.3134015).
+3. Cook, D. J. **CASAS Smart Home dataset (aruba, cairo, milan, tulum).** Zenodo, 2025. doi:[10.5281/zenodo.17180309](https://doi.org/10.5281/zenodo.17180309), CC-BY-4.0.
+4. Liu, F. T., Ting, K. M., and Zhou, Z.-H. **Isolation Forest.** *Proc. 8th IEEE ICDM*, 413–422, 2008. doi:[10.1109/ICDM.2008.17](https://doi.org/10.1109/ICDM.2008.17).
+5. Hawkes, A. G. **Spectra of Some Self-Exciting and Mutually Exciting Point Processes.** *Biometrika* 58(1):83–90, 1971. See also Ogata, Y., *Journal of the American Statistical Association* 83(401):9–27, 1988, for the forward-recursion likelihood this project implements in numpy.
+6. Rabiner, L. R. **A Tutorial on Hidden Markov Models and Selected Applications in Speech Recognition.** *Proceedings of the IEEE* 77(2):257–286, 1989.
+7. Du, M., Li, F., Zheng, G., and Srikumar, V. **DeepLog: Anomaly Detection and Diagnosis from System Logs through Deep Learning.** *Proc. ACM SIGSAC CCS*, 1285–1298, 2017. doi:[10.1145/3133956.3134015](https://doi.org/10.1145/3133956.3134015).
 
 ## License
 

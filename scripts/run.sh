@@ -6,13 +6,38 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 SKIP_SETUP=false
-SOURCE=real
+SOURCE=auto
+
 for arg in "$@"; do
     case "$arg" in
         --skip-setup) SKIP_SETUP=true ;;
         --synthetic) SOURCE=synthetic ;;
+        --real) SOURCE=real ;;
     esac
 done
+
+REAL_CSV_PATTERN="data/real/casas_*_raw.csv"
+has_real_csvs() { compgen -G "$REAL_CSV_PATTERN" > /dev/null; }
+
+# Resolve the data source. Default is auto-detect: real CASAS CSVs if present
+# (users can drop their own WSU CASAS downloads into data/real/), synthetic
+# otherwise so a fresh clone works without any data.
+if [ "$SOURCE" = "auto" ]; then
+    if has_real_csvs; then
+        SOURCE=real
+        echo "[1/4] Real CASAS CSVs found in data/real/ - using real data (use --synthetic to force)."
+    else
+        SOURCE=synthetic
+        echo "[1/4] No real CASAS CSVs in data/real/ - using synthetic data (--real to require data)."
+    fi
+fi
+
+if [ "$SOURCE" = "real" ] && ! has_real_csvs; then
+    echo "[ERROR] --real requested but no data/real/casas_*_raw.csv found." >&2
+    echo "        Download the WSU CASAS datasets into data/real/ and retry," >&2
+    echo "        or run without --real to use the synthetic fixtures." >&2
+    exit 1
+fi
 
 # [1/4] Virtualenv
 if [ ! -d "venv" ]; then
@@ -33,17 +58,7 @@ source venv/bin/activate
 # [2/4] Dependencies
 if [ "$SKIP_SETUP" = false ]; then
     echo "[2/4] Installing dependencies..."
-    if ! pip install -q -r requirements.txt; then
-        # 'tick' is a fragile native (C++) build; install everything else first,
-        # then attempt tick alone and continue with a warning if it fails.
-        echo "[WARN] Full install failed (usually 'tick'). Retrying without it, then tick last..."
-        tmpfile="$(mktemp)"
-        grep -vi '^tick' requirements.txt > "$tmpfile" || true
-        pip install -q -r "$tmpfile" || true
-        rm -f "$tmpfile"
-        pip install -q tick || \
-            echo "[WARN] 'tick' could not be built; the Hawkes detector will be unavailable."
-    fi
+    pip install -q -r requirements.txt
 else
     echo "[1/4][2/4] --skip-setup: venv and dependencies reused."
 fi

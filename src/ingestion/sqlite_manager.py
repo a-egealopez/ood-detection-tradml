@@ -125,7 +125,7 @@ class SQLiteDataManager:
         try:
             df = pd.read_sql_query(sql, self.conn, params=list(params))
             if "timestamp" in df.columns:
-                df["timestamp"] = pd.to_datetime(df["timestamp"])
+                df["timestamp"] = pd.to_datetime(df["timestamp"], format="mixed")
             return df
         except (sqlite3.Error, pd.errors.DatabaseError) as e:
             logger.error(f"Error al ejecutar consulta: {e}")

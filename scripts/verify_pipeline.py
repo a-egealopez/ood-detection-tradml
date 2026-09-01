@@ -223,10 +223,11 @@ def main():
         print("No data to evaluate.")
         sys.exit(1)
 
-    # The collective (order-reversal) gate only applies to directional data. Real
-    # homes move to/from each room roughly symmetrically, so reversal produces no
-    # rare transitions and the gate would fail by construction — report it as
-    # informational on near-symmetric data instead of failing.
+    # The collective (order-reversal) gate only applies to directional data. On
+    # near-symmetric streams (transition_asymmetry >= GATE_ASYMMETRY) reversal
+    # produces no rare transitions and the gate would fail by construction — report
+    # it as informational instead of failing. The synthetic houses are directional
+    # (~0.35); the real CASAS homes measure 0.68-0.83 (below the threshold).
     asymmetry = compute_asymmetry(house_dfs)
     asymmetry_ok = asymmetry < GATE_ASYMMETRY
     print(f"  Transition asymmetry (1.0 = symmetric, gate < {GATE_ASYMMETRY}): {asymmetry:.3f} "
