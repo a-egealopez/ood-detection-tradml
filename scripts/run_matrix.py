@@ -34,6 +34,7 @@ from evaluation.matrix_evaluation import (
     monotonicity_check,
     run_matrix,
 )
+from features.common import truncate_stream_to_days
 from ingestion.sqlite_manager import SQLiteDataManager
 
 logger = setup_logging()
@@ -78,6 +79,13 @@ def parse_args():
         type=float,
         default=DEFAULT_TRAIN_SPLIT,
         help="Fraction of days used for training (rest = holdout)",
+    )
+    parser.add_argument(
+        "--max-days",
+        type=int,
+        default=None,
+        help="Cap each house to its first N chronological days (real datasets can "
+        "span ~235 days and make the matrix slow). Default: use every day.",
     )
     parser.add_argument("--contamination", type=float, default=DEFAULT_CONTAMINATION)
     parser.add_argument(
@@ -125,6 +133,7 @@ def main():
         if df_house.empty:
             print(f"[{house_id}] no data, skipped")
             continue
+        df_house = truncate_stream_to_days(df_house, args.max_days)
         matrix = run_matrix(
             df_house,
             house_id,

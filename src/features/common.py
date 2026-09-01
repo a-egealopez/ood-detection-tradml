@@ -120,6 +120,26 @@ def event_sequence(df: pd.DataFrame, token_col: str = "sensor_id") -> list[str]:
     return df.sort_values("timestamp")[token_col].astype(str).tolist()
 
 
+def truncate_stream_to_days(df: pd.DataFrame, max_days: int | None) -> pd.DataFrame:
+    """Keep only the first ``max_days`` chronological days of a raw event stream.
+
+    Used by the CLIs to cap the evaluation window on long real datasets (the full
+    WSU homes span up to ~235 days) without re-extracting features from the whole
+    stream every seed. The temporal 70/30 split then applies within the truncated
+    window, preserving the train-prefix / holdout-tail design.
+    """
+    if max_days is None or max_days <= 0:
+        return df
+    df = df.copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    dates = sorted(df["timestamp"].dt.date.unique())
+    if len(dates) <= max_days:
+        return df
+    keep = set(dates[:max_days])
+    mask = df["timestamp"].dt.date.isin(keep)
+    return df.loc[mask, :].reset_index(drop=True)
+
+
 def extract_by_date(
     df: pd.DataFrame, feature_fn
 ) -> tuple[np.ndarray, np.ndarray]:

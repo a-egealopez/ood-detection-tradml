@@ -127,7 +127,11 @@ def _render_casas_demo_config() -> None:
         else:
             st.caption(f"{len(houses)} house(s) loaded — all of them run the pipeline.")
         st.slider(
-            "Days to analyze (from start of dataset)", 3, 30, 10, key="fx_days_real"
+            "Days to analyze (from start of dataset)", 3, 365, 10, key="fx_days_real"
+        )
+        st.caption(
+            "Only the first number of days of each house feed the pipeline, so the "
+            "full long WSU homes never get loaded at once."
         )
         return
 

@@ -35,6 +35,7 @@ from features import (
     NextEventTransitionExtractor,
     TemporalFeatureExtractor,
 )
+from features.common import truncate_stream_to_days
 from ingestion.sqlite_manager import SQLiteDataManager
 
 logger = setup_logging()
@@ -80,6 +81,14 @@ def parse_args():
         nargs="+",
         default=None,
         help="Casas a evaluar (por defecto, todas las que haya en la BD)",
+    )
+    parser.add_argument(
+        "--max-days",
+        type=int,
+        default=None,
+        help="Utilizar solo los primeros N días cronológicos de cada casa "
+        "(las casas reales abarcan hasta ~235 días y ralentizan el pipeline). "
+        "Por defecto: todos los días.",
     )
     parser.add_argument(
         "--train-split",
@@ -170,6 +179,7 @@ def run_house(db: SQLiteDataManager, house_id: str, args) -> dict:
     if df_house.empty:
         return {"house_id": house_id, "status": "sin datos"}
 
+    df_house = truncate_stream_to_days(df_house, args.max_days)
     df_house = df_house.copy()
     df_house["timestamp"] = pd.to_datetime(df_house["timestamp"])
     df_house["date"] = df_house["timestamp"].dt.date

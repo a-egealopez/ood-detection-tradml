@@ -171,7 +171,7 @@ def _house_features_cached(
     if source == "synthetic" and scenario != "control":
         df, _ = load_house_events_injected(source, house_id, scenario, intensity)
     else:
-        df = load_house_events(source, house_id)
+        df = load_house_events(source, house_id, max_days=_max_days(source))
     if df.empty:
         return HouseFeatures(np.array([]), np.array([]), None, [], 0, np.array([]))
     extractor = TemporalFeatureExtractor()
@@ -191,6 +191,13 @@ def _injection_config(source: str) -> tuple[str, str]:
     if source == "synthetic":
         return get_injection_config()
     return "control", "medium"
+
+
+def _max_days(source: str) -> int:
+    """Daily analysis window for a source (real only: the ``fx_days_real`` slider)."""
+    if source != "real":
+        return 0
+    return int(st.session_state.get("fx_days_real", 10))
 
 
 @st.cache_data(show_spinner=False, max_entries=384)
@@ -458,7 +465,7 @@ def _run_pipeline(source: str, config: dict) -> dict:
                 source, house_id, scenario, config.get("intensity", "medium")
             )
         else:
-            df = load_house_events(source, house_id)
+            df = load_house_events(source, house_id, max_days=_max_days(source))
             anomaly_dates = ()
         try:
             result, error = run_house(house_id, df, **config["pipeline_kwargs"])

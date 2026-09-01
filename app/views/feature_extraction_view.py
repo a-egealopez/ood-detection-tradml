@@ -568,9 +568,9 @@ def _load_stream(data_source: str) -> pd.DataFrame:
             df, _ = apply_injection(df, scenario, intensity)
         return df
 
-    df: pd.DataFrame | None = None
     try:
-        df = load_all_events()
+        max_days = int(st.session_state.get("fx_days_real", 10))
+        df = load_all_events(max_days=max_days)
     except Exception as e:
         st.error(f"Could not load the database: {e}")
         st.stop()
@@ -581,12 +581,7 @@ def _load_stream(data_source: str) -> pd.DataFrame:
         )
         st.stop()
 
-    real: pd.DataFrame = pd.DataFrame(df)
-    max_days = int(st.session_state.get("fx_days_real", 10))
-    timestamps = pd.to_datetime(real["timestamp"])
-    dates = sorted(timestamps.dt.date.unique())[:max_days]
-    mask = timestamps.dt.date.isin(dates).to_numpy()
-    return cast(pd.DataFrame, real[mask])
+    return df
 
 
 def _recap_stream(data_source: str) -> None:
@@ -620,31 +615,7 @@ def _example_streams(data_source: str) -> tuple[pd.DataFrame, pd.DataFrame, tupl
     numbers match the inspector below. Returns ``(normal, injected,
     anomalous_dates)``; ``anomalous_dates`` is empty under the "control" scenario.
     """
-    if data_source == "Synthetic":
-        normal = generate_synthetic_events(
-            n_days=int(st.session_state.get("fx_days", 4)),
-            pattern="regular",
-            n_sensors=int(st.session_state.get("fx_sensors", 3)),
-            events_per_day=int(st.session_state.get("fx_events_day", 80)),
-            seed=DEFAULT_RANDOM_STATE,
-        )
-    else:
-        real: pd.DataFrame | None = None
-        try:
-            real = load_all_events()
-        except Exception as e:
-            st.error(f"Could not load the database: {e}")
-            st.stop()
-        if real.empty:
-            st.warning(
-                "The database is empty. Run first `python src/ingestion/casas_loader.py`."
-            )
-            st.stop()
-        events: pd.DataFrame = real
-        max_days = int(st.session_state.get("fx_days_real", 10))
-        timestamps = pd.to_datetime(events["timestamp"])
-        dates = sorted(timestamps.dt.date.unique())[:max_days]
-        normal = events[timestamps.dt.date.isin(dates).to_numpy()].copy()
+    normal = _load_stream(data_source)
 
     scenario, intensity = get_injection_config()
     injected, anomalous_dates = apply_injection(normal, scenario, intensity)

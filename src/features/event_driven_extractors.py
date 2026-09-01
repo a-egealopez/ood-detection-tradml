@@ -307,18 +307,40 @@ class NextEventTransitionExtractor(EventDrivenExtractor):
         self.prob_matrix_: pd.DataFrame | None = None
         self.rare_threshold_: float | None = None
 
+        # Speed path for large streams: integer codes + a stacked numpy matrix.
+        self._vocab_index_: dict[str, int] = {}
+        self._prob_values_: np.ndarray | None = None
+
     def fit(self, df: pd.DataFrame) -> "NextEventTransitionExtractor":
-        """Learn the normal-transition probability matrix from ``df``."""
+        """Learn the normal-transition probability matrix from ``df``.
+
+        Vectorized: the transition-count matrix is built with a numpy occurrence
+        count over the integer-encoded sequence instead of a Python loop, so
+        fitting scales to hundreds of thousands of raw events (real CASAS days)
+        instead of quadratic ``DataFrame.loc`` writes.
+        """
         sequence = event_sequence(df, self.token_col)
         vocabulary = sorted(set(sequence))
-        transition_counts = pd.DataFrame(
-            self.LAPLACE_ALPHA, index=vocabulary, columns=vocabulary, dtype=float
+        n = len(vocabulary)
+        self._vocab_index_ = {sensor: i for i, sensor in enumerate(vocabulary)}
+
+        transition_counts = np.full(
+            (n, n), self.LAPLACE_ALPHA, dtype=float
         )
-        for source, target in itertools.pairwise(sequence):
-            if source in transition_counts.index and target in transition_counts.columns:
-                transition_counts.loc[source, target] += 1.0
-        self.prob_matrix_ = transition_counts.div(
-            transition_counts.sum(axis=1), axis=0
+        if n > 0 and len(sequence) > 1:
+            codes = np.fromiter(
+                (self._vocab_index_[s] for s in sequence),
+                dtype=int,
+                count=len(sequence),
+            )
+            flat = codes[:-1] * n + codes[1:]
+            transition_counts += np.bincount(flat, minlength=n * n).reshape(n, n)
+
+        self._prob_values_ = transition_counts / transition_counts.sum(
+            axis=1, keepdims=True
+        )
+        self.prob_matrix_ = pd.DataFrame(
+            self._prob_values_, index=vocabulary, columns=vocabulary
         )
 
         train_logprobs = self._logprobs_of(sequence)
@@ -336,18 +358,27 @@ class NextEventTransitionExtractor(EventDrivenExtractor):
         return super().extract(df)
 
     def _logprobs_of(self, seq: list[str]) -> list[float]:
-        prob_matrix = self.prob_matrix_
-        if prob_matrix is None:
+        prob_values = self._prob_values_
+        if prob_values is None:
             raise RuntimeError("You must call fit() before extract()")
-        logprobs = []
-        for source, target in itertools.pairwise(seq):
-            if source in prob_matrix.index and target in prob_matrix.columns:
-                probability = float(prob_matrix.loc[source, target])
-                logprobs.append(float(np.log(max(probability, EPSILON))))
-            else:
-                # Source or target sensor never seen in training: maximally rare.
-                logprobs.append(float(np.log(EPSILON)))
-        return logprobs
+        n_transitions = max(len(seq) - 1, 0)
+        if n_transitions == 0:
+            return []
+
+        codes = np.fromiter(
+            (self._vocab_index_.get(s, -1) for s in seq),
+            dtype=int,
+            count=len(seq),
+        )
+        source = codes[:-1]
+        target = codes[1:]
+        known = (source >= 0) & (target >= 0)
+
+        logprobs = np.full(n_transitions, float(np.log(EPSILON)), dtype=float)
+        logprobs[known] = np.log(
+            np.maximum(prob_values[source[known], target[known]], EPSILON)
+        )
+        return logprobs.tolist()
 
     def _transition_logprobs(self, group: pd.DataFrame) -> list[float]:
         return self._logprobs_of(event_sequence(group, self.token_col))

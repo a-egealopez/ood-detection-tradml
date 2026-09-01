@@ -20,6 +20,7 @@ from evaluation.event_injection import (
     inject_point_events,
     select_anomaly_dates,
 )
+from features.common import truncate_stream_to_days
 from ingestion.casas_loader import load_all_houses
 from ingestion.markov_generator import generate_house_stream
 from ingestion.sqlite_manager import SQLiteDataManager
@@ -146,14 +147,22 @@ def list_houses(source: str) -> list[str]:
 
 
 @st.cache_data(show_spinner=False)
-def load_house_events(source: str, house_id: str) -> pd.DataFrame:
-    """Load all events of a single house from the given data source."""
+def load_house_events(source: str, house_id: str, max_days: int = 0) -> pd.DataFrame:
+    """Load a house's events from the given data source, capped to ``max_days`` days.
+
+    ``max_days = 0`` returns the full stream (synthetic houses are already sized at
+    generation time). For the **real** source the caller passes the daily window
+    picked in the Data step (``fx_days_real``) so long WSU homes (up to ~235+ days)
+    are truncated before feature extraction and the pipeline never sees unbounded
+    input.
+    """
     db = SQLiteDataManager(str(db_path(source)))
     db.connect()
     try:
-        return db.query_house(house_id)
+        df = db.query_house(house_id)
     finally:
         db.close()
+    return truncate_stream_to_days(df, max_days or None)
 
 
 @st.cache_data(show_spinner=False)
@@ -173,12 +182,42 @@ def load_house_events_injected(
     return apply_injection(df, scenario, intensity_level, seed=seed)
 
 
+def _query_events_with_limit(
+    db: SQLiteDataManager, max_days: int | None
+) -> pd.DataFrame:
+    """Query sensor_events, optionally limited to the first *max_days* days.
+
+    The day window is computed at the SQL level so large real CASAS databases
+    (235+ days) are not fully loaded into Python memory just to be sliced. The
+    cutoff is the max date among the first *max_days* distinct dates, mirroring
+    ``features.common.truncate_stream_to_days``.
+    """
+    if max_days is not None and max_days > 0:
+        sql = (
+            "SELECT * FROM sensor_events "
+            "WHERE substr(timestamp, 1, 10) <= ("
+            "  SELECT MAX(d) FROM ("
+            "    SELECT DISTINCT substr(timestamp, 1, 10) AS d "
+            "    FROM sensor_events ORDER BY d LIMIT ?"
+            "  )"
+            ") "
+            "ORDER BY timestamp"
+        )
+        return db.query_to_dataframe(sql, params=(float(max_days),))
+    return db.query_to_dataframe("SELECT * FROM sensor_events ORDER BY timestamp")
+
+
 @st.cache_data(show_spinner=False)
-def load_all_events() -> pd.DataFrame:
-    """Load the full real event table (used by the feature-extraction tutorial)."""
+def load_all_events(max_days: int = 0) -> pd.DataFrame:
+    """Load the real event table (used by the feature-extraction tutorial).
+
+    ``max_days = 0`` returns the full stream; otherwise the SQL query keeps only
+    the first *max_days* chronological days, avoiding a full-table load for large
+    real CASAS houses.
+    """
     db = SQLiteDataManager(str(DB_PATH))
     db.connect()
     try:
-        return db.query_to_dataframe("SELECT * FROM sensor_events ORDER BY timestamp")
+        return _query_events_with_limit(db, max_days or None)
     finally:
         db.close()

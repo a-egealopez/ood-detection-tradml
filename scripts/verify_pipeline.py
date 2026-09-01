@@ -53,6 +53,7 @@ from evaluation.matrix_evaluation import (  # noqa: E402
     run_matrix,
 )
 from features import NextEventTransitionExtractor  # noqa: E402
+from features.common import truncate_stream_to_days  # noqa: E402
 from ingestion.sqlite_manager import SQLiteDataManager  # noqa: E402
 
 logger = setup_logging()
@@ -189,6 +190,9 @@ def main():
     parser.add_argument("--n-seeds", type=int, default=5)
     parser.add_argument("--seed-base", type=int, default=DEFAULT_RANDOM_STATE)
     parser.add_argument("--source", choices=["real", "synthetic"], default="synthetic")
+    parser.add_argument("--max-days", type=int, default=None,
+                        help="Cap each house to its first N chronological days "
+                        "(real houses span up to ~235 days). Default: every day")
     parser.add_argument("--houses", nargs="+", default=None)
     args = parser.parse_args()
 
@@ -213,6 +217,7 @@ def main():
         df_house = db.query_house(house_id)
         if df_house.empty:
             continue
+        df_house = truncate_stream_to_days(df_house, args.max_days)
         house_dfs[house_id] = df_house
         matrix = run_matrix(df_house, house_id, n_seeds=args.n_seeds, seed_base=args.seed_base)
         frames.append(matrix)
