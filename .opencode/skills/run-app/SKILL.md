@@ -51,7 +51,7 @@ The app is a guided 3-step workflow (`1 · Data → 2 · Features → 3 · Detec
 - Documentation & Concepts is always available as a sidebar expander.
 
 The anomaly pipeline reads houses from the SQLite DB (`data/sensor_data.db` for real,
-`data/synthetic/sensor_data.db` for synthetic), trains an ensemble on ~70% of daily
+`data/sensor_data_synthetic.db` for synthetic), trains an ensemble on ~70% of daily
 features, and evaluates with synthetic anomaly injection.
 
 ## Manual launch (deps ready)
