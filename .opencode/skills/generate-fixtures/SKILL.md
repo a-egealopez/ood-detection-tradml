@@ -39,7 +39,7 @@ Fixtures are just CSVs; they become usable by the app/CLI only after the loader 
 python src/ingestion/casas_loader.py --source synthetic
 ```
 
-This writes to `data/synthetic/sensor_data.db`. `scripts/run.sh --synthetic` does
+This writes to `data/sensor_data_synthetic.db`. `scripts/run.sh --synthetic` does
 generate + load + launch in one step.
 
 ## Schema expectations

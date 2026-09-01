@@ -63,7 +63,7 @@ def predict(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 ## Data & evaluation
 
 - Real and synthetic data live in separate databases (`data/sensor_data.db` vs
-  `data/synthetic/sensor_data.db`), never mixed.
+  `data/sensor_data_synthetic.db`), never mixed.
 - No real labels exist → always evaluate with synthetic anomaly injection on the **raw
   event stream** (`src/evaluation/event_injection.py`: point/contextual/collective +
   `control` null), train on train split only, scale on train stats only.

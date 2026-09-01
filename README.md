@@ -1,7 +1,7 @@
 # Unsupervised Out-of-Distribution Detection on Event-Driven Smart-Home Time Series
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://ood-detection.streamlit.app)
+[![Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://ood-detection-tradml.streamlit.app/)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.3%2B-orange.svg)](https://scikit-learn.org)
 [![Tests](https://img.shields.io/badge/tests-68%20pytest-green.svg)](scripts/verify_pipeline.py)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -262,7 +262,7 @@ venv/bin/python -m pytest            # unit + functional suites
 4. The app self-provisions its synthetic CASAS fixtures on first run (see
    `ensure_synthetic_db` in `app/data_access.py`), so the CASAS track works without
    committing any data.
-5. Your app is live at `https://<custom-subdomain>.streamlit.app` (customize the
+5. Your app is live at `https://ood-detection-tradml.streamlit.app/` (customize the
    subdomain in App settings).
 
 ## Validation and quality gates
