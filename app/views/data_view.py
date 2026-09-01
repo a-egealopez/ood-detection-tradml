@@ -106,13 +106,13 @@ def _render_casas_demo_config() -> None:
     """Demo data panel for the CASAS track (chosen here, used by Features)."""
     origin = st.session_state.get("casas_source", "Synthetic")
     if origin != "Synthetic":
-        from data_access import list_houses, download_casas_data_from_zenodo
+        from data_access import download_casas_data_from_zenodo, list_houses
 
         try:
             houses = list_houses("real")
         except Exception:
             houses = []
-        
+
         if not houses:
             st.info("No real data loaded yet.")
             if st.button("📥 Download CASAS data from Zenodo", use_container_width=True):

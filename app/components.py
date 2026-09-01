@@ -108,7 +108,8 @@ def advance_step(key: str, n_steps: int = 4) -> None:
     cur = st.session_state.get(f"{key}_current", 0)
     if cur < n_steps - 1:
         st.session_state[f"{key}_current"] = cur + 1
-        st.session_state[f"{key}_completed"] = max(st.session_state.get(f"{key}_completed", 0), cur + 1)
+        max_completed = max(st.session_state.get(f"{key}_completed", 0), cur + 1)
+        st.session_state[f"{key}_completed"] = max_completed
 
 
 def back_step(key: str) -> None:
@@ -361,7 +362,9 @@ def render_decision_boundary(
     """
     from mesh import contour_polylines, score_mesh
 
-    _, _, zz, threshold = score_mesh(detector, x_range, y_range, grid=grid_resolution, transform=transform)
+    _, _, zz, threshold = score_mesh(
+        detector, x_range, y_range, grid=grid_resolution, transform=transform
+    )
     polylines = contour_polylines(zz, threshold, x_range, y_range)
     traces = []
     if polylines:
