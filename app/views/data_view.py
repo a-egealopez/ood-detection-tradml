@@ -103,35 +103,31 @@ def _preview_casas() -> go.Figure:
 
 
 def _render_casas_demo_config() -> None:
-    """Demo data panel for the CASAS track (chosen here, used by Features).
-
-    Synthetic: pick a stream size + an optional anomaly scenario. Real: pick how
-    many days to read from the loaded database. All keys surface in the Features
-    step too.
-    """
+    """Demo data panel for the CASAS track (chosen here, used by Features)."""
     origin = st.session_state.get("casas_source", "Synthetic")
     if origin != "Synthetic":
-        st.markdown("#### Real CASAS data")
-        st.caption(
-            "Read from the loaded SQLite database — run the ingestion loader first "
-            "(`python src/ingestion/casas_loader.py --source real`)."
-        )
-        from data_access import list_houses
+        from data_access import list_houses, download_casas_data_from_zenodo
 
         try:
             houses = list_houses("real")
         except Exception:
             houses = []
+        
         if not houses:
-            st.warning("No houses found in the real database.")
-        else:
-            st.caption(f"{len(houses)} house(s) loaded — all of them run the pipeline.")
+            st.info("No real data loaded yet.")
+            if st.button("📥 Download CASAS data from Zenodo", use_container_width=True):
+                success = download_casas_data_from_zenodo()
+                if success:
+                    st.rerun()
+                else:
+                    st.session_state.casas_source = "Synthetic"
+            st.caption("Required: ~150MB download + processing. Will load 4 houses (aruba, cairo, milan, tulum).")
+            return
+
+        st.markdown("#### Real CASAS data")
+        st.caption(f"{len(houses)} house(s) loaded (all run the pipeline).")
         st.slider(
             "Days to analyze (from start of dataset)", 3, 365, 10, key="fx_days_real"
-        )
-        st.caption(
-            "Only the first number of days of each house feed the pipeline, so the "
-            "full long WSU homes never get loaded at once."
         )
         return
 

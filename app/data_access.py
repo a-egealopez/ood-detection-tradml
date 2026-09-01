@@ -11,7 +11,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from config import DB_PATH, SYNTHETIC_DATA_DIR, db_path
+from config import DB_PATH, HOUSES, REAL_DATA_DIR, SYNTHETIC_DATA_DIR, db_path
 from detectors.constants import DEFAULT_CONTAMINATION, DEFAULT_RANDOM_STATE, DEFAULT_TRAIN_SPLIT
 from evaluation.event_injection import (
     INTENSITY_PRESETS,
@@ -179,3 +179,64 @@ def load_all_events(max_days: int = 0, source: str = "real") -> pd.DataFrame:
         return _query_events_with_limit(db, max_days or None)
     finally:
         db.close()
+
+
+def download_casas_data_from_zenodo() -> bool:
+    """Download and load real CASAS data from Zenodo. Returns True on success."""
+    import tempfile
+    import urllib.request
+    import zipfile
+    
+    zenodo_url = "https://zenodo.org/api/records/17180309/files/new_labeled_data.zip/content"
+    house_to_files = {
+        "aruba": ["aruba.txt"],
+        "cairo": ["cairo.txt"],
+        "milan": ["milan.txt"],
+        "tulum": ["tulum1.txt", "tulum2.txt"],
+    }
+    valid_readings = {"ON", "OFF", "OPEN", "CLOSE"}
+    event_sensor_prefixes = ("M", "D")
+    
+    try:
+        with st.spinner("📥 Downloading CASAS data from Zenodo (~150MB)..."):
+            zip_path = Path(tempfile.gettempdir()) / "casas_casas_new_labeled_data.zip"
+            REAL_DATA_DIR.mkdir(parents=True, exist_ok=True)
+            
+            urllib.request.urlretrieve(zenodo_url, zip_path)
+        
+        with st.spinner("📦 Extracting and processing..."):
+            with zipfile.ZipFile(zip_path) as archive:
+                for house in HOUSES:
+                    house_members = house_to_files[house]
+                    rows = []
+                    for member in house_members:
+                        if member not in archive.namelist():
+                            raise FileNotFoundError(f"Missing {member} in archive")
+                        with archive.open(member) as fh:
+                            lines = fh.read().decode("utf-8").splitlines()
+                            for line in lines:
+                                fields = line.split()
+                                if len(fields) >= 4:
+                                    date, time_, sensor_id, reading = fields[:4]
+                                    if reading in valid_readings and sensor_id.startswith(event_sensor_prefixes):
+                                        rows.append(f"{date},{time_},{sensor_id},{reading}")
+                    
+                    out_csv = REAL_DATA_DIR / f"casas_{house}_raw.csv"
+                    out_csv.write_text("\n".join(rows) + "\n")
+        
+        with st.spinner("💾 Loading into database..."):
+            mgr = SQLiteDataManager(str(db_path("real")))
+            mgr.connect()
+            try:
+                mgr.create_tables()
+                load_all_houses(mgr, source="real")
+            finally:
+                mgr.close()
+            st.cache_data.clear()  # Clear cached list_houses so it reloads
+        
+        st.success("✅ CASAS data loaded successfully!")
+        return True
+    
+    except Exception as e:
+        st.error(f"❌ Download failed: {e}")
+        return False
