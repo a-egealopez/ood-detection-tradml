@@ -83,9 +83,9 @@ def guided_stepper(steps: list[str], key: str) -> int:
 
         # Determine label with status indicator
         if i < completed or (i == completed and not is_active):
-            label = f"✓ {step_name}"
+            label = f":material/check: {step_name}"
         elif is_locked:
-            label = f"🔒 {step_name}"
+            label = f":material/lock: {step_name}"
         else:
             label = f"{i + 1}. {step_name}"
 
@@ -305,7 +305,7 @@ def render_resources(method: str) -> None:
     resources = resources_for(method)
     if not resources:
         return
-    with st.expander("📚 Learn more", expanded=False):
+    with st.expander(":material/menu_book: Learn more", expanded=False):
         for res in resources:
             st.markdown(
                 f"**{KIND_LABELS[res.kind]} · [{res.title}]({res.url})**  \n"

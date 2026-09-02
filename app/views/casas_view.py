@@ -91,7 +91,7 @@ def _render_ensemble_config(source: str) -> dict:
     card_specs = [
         {
             "id": "weighted",
-            "icon": "⚖️",
+            "icon": ":material/balance:",
             "title": "Weighted (soft)",
             "description": "Blends each detector's continuous score into a "
             "weighted average — uses all the information.",
@@ -100,7 +100,7 @@ def _render_ensemble_config(source: str) -> dict:
         },
         {
             "id": "majority",
-            "icon": "🗳️",
+            "icon": ":material/how_to_vote:",
             "title": "Majority (hard)",
             "description": "Each detector votes yes/no; a day is flagged only "
             "when most detectors agree.",
@@ -248,7 +248,7 @@ def _render_detector_card(
     """One detector card: toggle header + chart (timeline / PCA cloud) + sliders."""
     spec = DETECTOR_REGISTRY[name]
     st.button(
-        f"{'✅' if selected else '▫️'} {name}",
+        f"{':material/check_circle:' if selected else ':material/radio_button_unchecked:'} {name}",
         key=f"toggle_casas_{name}",
         width="stretch",
         type="primary" if selected else "secondary",
@@ -310,7 +310,7 @@ def _render_detector_card(
             )
         display_chart(fig, key=f"det_chart_casas_{preview_house}_{name}")
     except Exception as exc:
-        st.warning(f"⚠️ {name}: {exc}")
+        st.warning(f":material/warning: {name}: {exc}")
 
     render_param_widgets(spec.params, f"adv_casas_{name}", values, help=True)
 
@@ -657,8 +657,14 @@ def _render_house_results(
     )
 
 
+@st.fragment
 def _render_anomalies_tab(results: dict) -> None:
-    """Ensemble results for one house at a time (all houses always computed)."""
+    """Ensemble results for one house at a time (all houses always computed).
+
+    Isolated in a ``st.fragment`` so picking a house or opening a detector's score
+    cloud only recomputes this results section (the heavy mesh) instead of rerunning
+    the whole ensemble-config stack above.
+    """
     if not results:
         st.info(
             "Select at least one house in the Data step; results update automatically."

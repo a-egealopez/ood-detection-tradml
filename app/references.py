@@ -30,10 +30,10 @@ class Resource:
 
 # Badge shown next to each resource kind.
 KIND_LABELS = {
-    "paper": "📄 Paper",
-    "survey": "📚 Survey",
-    "manual": "📘 Docs",
-    "tool": "🧰 Library",
+    "paper": ":material/description: Paper",
+    "survey": ":material/menu_book: Survey",
+    "manual": ":material/import_contacts: Docs",
+    "tool": ":material/construction: Library",
 }
 
 # UI names that map onto a resource key (same references, two entry points).

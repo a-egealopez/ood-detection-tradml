@@ -297,7 +297,7 @@ def _render_2d_ensemble() -> None:
     card_specs = [
         {
             "id": "weighted",
-            "icon": "⚖️",
+            "icon": ":material/balance:",
             "title": "Weighted (soft)",
             "description": "Blends each detector's continuous score into a weighted average — uses all the information.",
             "badge": "continuous",
@@ -305,7 +305,7 @@ def _render_2d_ensemble() -> None:
         },
         {
             "id": "majority",
-            "icon": "🗳️",
+            "icon": ":material/how_to_vote:",
             "title": "Majority (hard)",
             "description": "Each detector votes yes/no; a point is flagged only when most detectors agree.",
             "badge": "votes",

@@ -198,13 +198,13 @@ def download_casas_data_from_zenodo() -> bool:
     event_sensor_prefixes = ("M", "D")
 
     try:
-        with st.spinner("📥 Downloading CASAS data from Zenodo (~150MB)..."):
+        with st.spinner(":material/download: Downloading CASAS data from Zenodo (~150MB)..."):
             zip_path = Path(tempfile.gettempdir()) / "casas_casas_new_labeled_data.zip"
             REAL_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
             urllib.request.urlretrieve(zenodo_url, zip_path)
 
-        with st.spinner("📦 Extracting and processing..."), zipfile.ZipFile(zip_path) as archive:
+        with st.spinner(":material/package_2: Extracting and processing..."), zipfile.ZipFile(zip_path) as archive:
                 for house in HOUSES:
                     house_members = house_to_files[house]
                     rows = []
@@ -233,9 +233,9 @@ def download_casas_data_from_zenodo() -> bool:
                 mgr.close()
             st.cache_data.clear()  # Clear cached list_houses so it reloads
 
-        st.success("✅ CASAS data loaded successfully!")
+        st.success(":material/check_circle: CASAS data loaded successfully!")
         return True
 
     except Exception as e:
-        st.error(f"❌ Download failed: {e}")
+        st.error(f":material/error: Download failed: {e}")
         return False

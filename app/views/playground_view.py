@@ -478,7 +478,7 @@ def _render_detector_card(
 
     # Toggle button (consistent with CASAS detect step)
     st.button(
-        f"{'✅' if selected else '▫️'} {detector_name}",
+        f"{':material/check_circle:' if selected else ':material/radio_button_unchecked:'} {detector_name}",
         key=f"toggle_2d_{detector_name}",
         width="stretch",
         type="primary" if selected else "secondary",

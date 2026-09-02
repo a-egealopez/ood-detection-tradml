@@ -117,7 +117,7 @@ def _render_casas_demo_config() -> None:
 
         if not houses:
             st.info("No real data loaded yet.")
-            if st.button("📥 Download CASAS data from Zenodo", width="stretch"):
+            if st.button(":material/download: Download CASAS data from Zenodo", width="stretch"):
                 success = download_casas_data_from_zenodo()
                 if success:
                     st.rerun()
@@ -194,28 +194,28 @@ def _render_casas_demo_config() -> None:
     scenario_specs = [
         {
             "id": "control",
-            "icon": "🌿",
+            "icon": ":material/eco:",
             "title": "Control",
             "description": "Null baseline — nothing injected, detectors stay at chance (~0.5 AUROC).",
             "color": SUCCESS,
         },
         {
             "id": "point",
-            "icon": "💥",
+            "icon": ":material/bolt:",
             "title": "Point",
             "description": "Night burst — extra events at 3–4 AM from one sensor (volume anomaly).",
             "color": PRIMARY,
         },
         {
             "id": "contextual",
-            "icon": "🕐",
+            "icon": ":material/schedule:",
             "title": "Contextual",
             "description": "Whole routine shifted by S hours — same events, wrong time of day.",
             "color": FAMILY_DISTANCE,
         },
         {
             "id": "collective",
-            "icon": "🔀",
+            "icon": ":material/shuffle:",
             "title": "Collective",
             "description": "Intra-day sensor order partially reversed — same counts, broken transitions.",
             "color": FAMILY_BOUNDARY,
@@ -247,7 +247,7 @@ def render_data_step() -> None:
     data_cards = [
         {
             "id": DATA_2D,
-            "icon": "🎮",
+            "icon": ":material/videogame_asset:",
             "title": "2D Playground",
             "description": (
                 "Toy 2-D datasets (blobs, moons, circles) to watch each "
@@ -259,7 +259,7 @@ def render_data_step() -> None:
         },
         {
             "id": DATA_CASAS,
-            "icon": "🏠",
+            "icon": ":material/home:",
             "title": "CASAS Smart Home",
             "description": (
                 "Smart-home event streams: build daily features and score "
