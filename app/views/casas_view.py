@@ -250,7 +250,7 @@ def _render_detector_card(
     st.button(
         f"{'✅' if selected else '▫️'} {name}",
         key=f"toggle_casas_{name}",
-        use_container_width=True,
+        width="stretch",
         type="primary" if selected else "secondary",
         on_click=_toggle_detector,
         args=(name,),

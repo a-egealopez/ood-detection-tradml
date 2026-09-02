@@ -480,7 +480,7 @@ def _render_detector_card(
     st.button(
         f"{'✅' if selected else '▫️'} {detector_name}",
         key=f"toggle_2d_{detector_name}",
-        use_container_width=True,
+        width="stretch",
         type="primary" if selected else "secondary",
         on_click=_toggle_detector_2d,
         args=(detector_name,),

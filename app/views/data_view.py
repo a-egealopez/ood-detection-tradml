@@ -31,6 +31,7 @@ DATA_2D = "2D Playground"
 DATA_CASAS = "CASAS Smart Home"
 
 
+@st.cache_data(show_spinner=False)
 def _preview_2d() -> go.Figure:
     """Tiny blob scatter previewing the 2D Playground geometry."""
     X, y = SyntheticDatasetGenerator.generate(
@@ -70,6 +71,7 @@ def _preview_2d() -> go.Figure:
     return fig
 
 
+@st.cache_data(show_spinner=False)
 def _preview_casas() -> go.Figure:
     """Tiny event-stream strip previewing the CASAS raw data shape."""
     import pandas as pd
@@ -115,7 +117,7 @@ def _render_casas_demo_config() -> None:
 
         if not houses:
             st.info("No real data loaded yet.")
-            if st.button("📥 Download CASAS data from Zenodo", use_container_width=True):
+            if st.button("📥 Download CASAS data from Zenodo", width="stretch"):
                 success = download_casas_data_from_zenodo()
                 if success:
                     st.rerun()

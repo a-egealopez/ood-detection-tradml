@@ -78,9 +78,6 @@ class DetectorSpec:
 # ============================================================================
 # DETECTOR REGISTRY (unified, used by sidebar + teaching track)
 # ============================================================================
-# DETECTOR REGISTRY (unified, used by sidebar + teaching track)
-# ============================================================================
-
 DETECTOR_REGISTRY: dict[str, DetectorSpec] = {
     "Isolation Forest": DetectorSpec(
         name="Isolation Forest",

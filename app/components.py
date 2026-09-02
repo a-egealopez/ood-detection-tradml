@@ -95,7 +95,7 @@ def guided_stepper(steps: list[str], key: str) -> int:
                 key=f"{key}_step_{i}",
                 disabled=is_locked,
                 type="primary" if is_active else "secondary",
-                use_container_width=True,
+                width="stretch",
             ):
                 st.session_state[f"{key}_current"] = i
                 st.rerun()
@@ -222,7 +222,7 @@ def clickable_cards(
             st.button(
                 "\n\n".join(lines),
                 key=f"{key}_card_{spec['id']}",
-                use_container_width=True,
+                width="stretch",
                 type="primary" if selected else "secondary",
                 on_click=_click_set,
                 args=(key, spec["id"]),

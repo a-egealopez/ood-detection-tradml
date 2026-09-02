@@ -204,8 +204,7 @@ def download_casas_data_from_zenodo() -> bool:
 
             urllib.request.urlretrieve(zenodo_url, zip_path)
 
-        with st.spinner("📦 Extracting and processing..."):
-            with zipfile.ZipFile(zip_path) as archive:
+        with st.spinner("📦 Extracting and processing..."), zipfile.ZipFile(zip_path) as archive:
                 for house in HOUSES:
                     house_members = house_to_files[house]
                     rows = []
