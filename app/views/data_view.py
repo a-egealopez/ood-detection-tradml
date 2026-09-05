@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from components import breadcrumb, clickable_cards, colored_section_header
 from detectors.constants import DEFAULT_RANDOM_STATE
-from teaching.datasets import SyntheticDatasetGenerator
+from teaching.synthetic_2d_datasets import SyntheticDatasetGenerator
 from theme import (
     FAMILY_BOUNDARY,
     FAMILY_DISTANCE,
@@ -76,7 +76,7 @@ def _preview_casas() -> go.Figure:
     """Tiny event-stream strip previewing the CASAS raw data shape."""
     import pandas as pd
 
-    from features.event_driven_extractors import generate_synthetic_events
+    from teaching.synthetic_2d_datasets import generate_synthetic_events
 
     df = generate_synthetic_events(
         n_days=2, pattern="day_night", n_sensors=4, events_per_day=90, seed=7

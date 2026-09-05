@@ -166,7 +166,7 @@ def _house_features_cached(
     """
     from sklearn.decomposition import PCA
 
-    from pipeline import MIN_DAYS
+    from casas_pipeline import MIN_DAYS
 
     if source == "synthetic" and scenario != "control":
         df, _ = load_house_events_injected(source, house_id, scenario, intensity)
@@ -446,7 +446,7 @@ def _combine_config(source: str, detect: dict, ensemble: dict) -> dict:
 # AUTO-RUN (cached by config signature, no button)
 # ============================================================================
 def _run_pipeline(source: str, config: dict) -> dict:
-    from pipeline import run_house
+    from casas_pipeline import run_house
 
     results = st.session_state.get("results_casas", {})
     if st.session_state.get("sig_casas") == config["signature"]:

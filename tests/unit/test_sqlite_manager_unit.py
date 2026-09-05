@@ -1,4 +1,4 @@
-from ingestion.sqlite_manager import SQLiteDataManager
+from ingestion.event_store import SQLiteDataManager
 
 BATCH = [
     {

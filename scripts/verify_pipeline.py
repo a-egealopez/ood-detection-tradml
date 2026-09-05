@@ -45,16 +45,16 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from config import db_path, setup_logging  # noqa: E402
 from detectors.constants import DEFAULT_RANDOM_STATE  # noqa: E402
-from evaluation.event_injection import transition_asymmetry  # noqa: E402
-from evaluation.matrix_evaluation import (  # noqa: E402
+from evaluation.anomaly_injectors import transition_asymmetry  # noqa: E402
+from evaluation.coherent_evaluation import (  # noqa: E402
     DEFAULT_DETECTORS,
     aggregate_matrix,
     monotonicity_check,
     run_matrix,
 )
 from features import NextEventTransitionExtractor  # noqa: E402
-from features.common import truncate_stream_to_days  # noqa: E402
-from ingestion.sqlite_manager import SQLiteDataManager  # noqa: E402
+from features.daily_aggregates import truncate_stream_to_days  # noqa: E402
+from ingestion.event_store import SQLiteDataManager  # noqa: E402
 
 logger = setup_logging()
 

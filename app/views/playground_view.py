@@ -38,7 +38,7 @@ from streamlit_config import (  # noqa: E402
     DETECTOR_DEFAULTS_LIST,
     DETECTOR_REGISTRY,
 )
-from teaching.datasets import SyntheticDatasetGenerator  # noqa: E402
+from teaching.synthetic_2d_datasets import SyntheticDatasetGenerator  # noqa: E402
 from theme import (  # noqa: E402
     ANOMALY,
     ANOMALY_SCALE,

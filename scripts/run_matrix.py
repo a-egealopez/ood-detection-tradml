@@ -29,13 +29,13 @@ from detectors.constants import (
     DEFAULT_RANDOM_STATE,
     DEFAULT_TRAIN_SPLIT,
 )
-from evaluation.matrix_evaluation import (
+from evaluation.coherent_evaluation import (
     aggregate_matrix,
     monotonicity_check,
     run_matrix,
 )
-from features.common import truncate_stream_to_days
-from ingestion.sqlite_manager import SQLiteDataManager
+from features.daily_aggregates import truncate_stream_to_days
+from ingestion.event_store import SQLiteDataManager
 
 logger = setup_logging()
 

@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from config import SYNTHETIC_DATA_DIR
-from ingestion.markov_generator import generate_house_stream
+from ingestion.casas_stream_generator import simulate_house
 
 HOUSE_PROFILES = {
     "aruba": {"events_mean": 180, "night_ratio": 0.08, "n_days": 90, "seed": 1},
@@ -22,7 +22,7 @@ HOUSE_PROFILES = {
 
 
 def generate_house_csv(house_id: str, **profile) -> Path:
-    df = generate_house_stream(house_id=house_id, **profile)
+    df = simulate_house(house_id=house_id, **profile)
     SYNTHETIC_DATA_DIR.mkdir(parents=True, exist_ok=True)
     out_path = SYNTHETIC_DATA_DIR / f"casas_{house_id}_raw.csv"
     df.to_csv(out_path, header=False, index=False)

@@ -1,19 +1,93 @@
+from collections import Counter, defaultdict
+from itertools import pairwise
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from evaluation.event_injection import (
+from evaluation.anomaly_injectors import (
     COLLECTIVE_INTENSITIES,
     CONTEXTUAL_INTENSITIES,
     POINT_INTENSITIES,
     inject_collective_events,
     inject_contextual_events,
     inject_point_events,
-    marginal_diff,
-    rare_transition_rate,
-    transition_asymmetry,
 )
 from features import NextEventTransitionExtractor
+from features.daily_aggregates import event_sequence
+
+
+# DoD proxy functions (moved from source to keep source clean)
+def _hourly_counts(df: pd.DataFrame) -> dict[int, int]:
+    ts = pd.to_datetime(df["timestamp"])
+    return ts.dt.hour.value_counts().sort_index().to_dict()
+
+
+def marginal_diff(df_before: pd.DataFrame, df_after: pd.DataFrame) -> dict:
+    """Compare per-day marginal stats between two dataframes (same day)."""
+    before = _with_date(df_before)
+    after = _with_date(df_after)
+    report = {}
+    for date in sorted(set(before["date"])):
+        b = before[before["date"] == date]
+        a = after[after["date"] == date]
+        report[str(date)] = {
+            "total": int(len(a) - len(b)),
+            "sensor": {
+                k: int(a["sensor_id"].value_counts().get(k, 0) - v)
+                for k, v in b["sensor_id"].value_counts().items()
+            },
+            "hour": {
+                k: int(_hourly_counts(a).get(k, 0) - _hourly_counts(b).get(k, 0))
+                for k in set(_hourly_counts(b)) | set(_hourly_counts(a))
+            },
+        }
+    return report
+
+
+def rare_transition_rate(
+    df_anomalous: pd.DataFrame, extractor
+) -> float:
+    """Fraction of an anomalous day's transitions the model marks as rare."""
+    logprobs = extractor._transition_logprobs(df_anomalous)
+    if not logprobs:
+        return 0.0
+    return sum(1.0 for lp in logprobs if lp < extractor.rare_threshold_) / len(logprobs)
+
+
+def transition_asymmetry(df: pd.DataFrame, extractor=None) -> float:
+    """Mean direction imbalance of pooled transition counts.
+
+    For each unordered pair {a,b}: min(count(a->b), count(b->a)) / max(...).
+    1.0 = perfectly symmetric; 0.0 = fully directional. Self-transitions excluded.
+    """
+    if extractor is not None:
+        token_col = getattr(extractor, "token_col", "sensor_id")
+        sequence = event_sequence(df, token_col)
+    else:
+        df = df.copy()
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        sequence = df.sort_values("timestamp")["sensor_id"].astype(str).tolist()
+
+    fwd = Counter(pairwise(sequence))
+    pairs = defaultdict(lambda: [0, 0])
+    for (a, b), c in fwd.items():
+        if a == b:
+            continue
+        key = tuple(sorted((a, b)))
+        if a == key[0]:
+            pairs[key][0] += c
+        else:
+            pairs[key][1] += c
+    ratios = [min(v[0], v[1]) / max(v[0], v[1]) for v in pairs.values() if max(v) > 0]
+    return float(np.mean(ratios)) if ratios else 1.0
+
+
+def _with_date(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["date"] = df["timestamp"].dt.date
+    return df
 
 ANOMALY_DATES_KEYS = {"2024-01-20", "2024-01-21"}
 

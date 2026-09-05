@@ -2,12 +2,12 @@ import numpy as np
 import pandas as pd
 
 from detectors.sequential.markov_sequence_detector import MarkovSequenceDetector
-from ingestion.markov_generator import build_movement_graph, generate_daily_events
+from ingestion.casas_stream_generator import build_weighted_graph, simulate_day
 
 
 def _stream_of_day(rng, graph, day_offset: int, reverse: bool = False) -> pd.DataFrame:
     start = pd.Timestamp("2024-01-01")
-    rows = generate_daily_events(
+    rows = simulate_day(
         rng,
         start + pd.Timedelta(days=day_offset),
         180,
@@ -26,7 +26,7 @@ def _stream_of_day(rng, graph, day_offset: int, reverse: bool = False) -> pd.Dat
 def test_reversed_day_scores_higher():
     """Acceptance: a reversed day (rare transitions) must score higher than a typical one."""
     rng = np.random.default_rng(7)
-    graph = build_movement_graph({"door_activity": 1.0})
+    graph = build_weighted_graph({"door_activity": 1.0})
 
     train = pd.concat([_stream_of_day(rng, graph, d) for d in range(30)])
     typical = _stream_of_day(rng, graph, 31)

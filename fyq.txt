@@ -1,0 +1,265 @@
+# Preguntas frecuentes — detección de anomalías (CASAS / 2D Playground)
+
+Formato por entrada: `P` (pregunta), `R` (respuesta ≤30 palabras, formal/técnica),
+`Código` (fichero + función/clase) y `Referencia` (solo de `app/references.py`).
+Los encabezados `##` agrupan las preguntas por tema y se usan como secciones en la app (`app/faq.py`).
+
+## 1 · Datos: generación y carga
+
+P: ¿Cómo se generan los datos sintéticos de CASAS?
+
+R: Mediante un generador Markoviano asimétrico con ciclo dirigido y régimen diario latente, que produce flujos de eventos por casa con estructura explotable por los detectores secuenciales.
+Código: `scripts/generate_synthetic_casas.py` (generación) y `src/ingestion/casas_stream_generator.py` (generador)
+Referencia: Chandola, Mithal & Kumar (2012), "Anomaly Detection for Discrete Sequences: A Survey".
+
+P: ¿Por qué el generador sintético es asimétrico y con régimen latente?
+
+R: La asimetría crea transiciones raras ante una inversión colectiva, exponiéndola a los detectores secuenciales; el régimen latente pegajoso aporta autocorrelación diaria que explotan los modelos HMM.
+Código: `src/ingestion/casas_stream_generator.py` (`_BASE_WEIGHTS`, `sample_regime_sequence`)
+Referencia: Rabiner (1989), "A Tutorial on Hidden Markov Models and Selected Applications in Speech Recognition".
+
+P: ¿Por qué se implementa el generador manualmente en lugar de usar una librería?
+
+R: `markovify` solo genera texto; `pymc` es inferencia bayesiana sin flujos temporales asimétricos; `hmmlearn` simula estados, no eventos con sello temporal ni perfiles por casa.
+Código: `src/ingestion/casas_stream_generator.py` (`simulate_day`)
+Referencia: Rabiner (1989), "A Tutorial on Hidden Markov Models and Selected Applications in Speech Recognition".
+
+P: ¿Cómo se descargan y cargan los datos reales CASAS (Aruba, Cairo, Milan, Tulum)?
+
+R: `fetch_casas_data.py` descarga `new_labeled_data.zip` de Zenodo (CC-BY-4.0, DOI 10.5281/zenodo.17180309), filtra eventos M###/D###, escribe `data/real/casas_<house>_raw.csv`. `casas_csv_to_sqlite.py --source real` los ingiere a SQLite.
+Código: `scripts/fetch_casas_data.py`, `src/ingestion/casas_csv_to_sqlite.py`
+Referencia: Cook (2012), "Learning Setting-Generalized Activity Models for Smart Spaces".
+
+## 2 · Inyección y evaluación de anomalías
+
+P: ¿Cómo se inyectan las anomalías en las casas sintéticas?
+
+R: Sobre el flujo crudo de eventos: point añade una ráfaga nocturna (3-4h) de un sensor; contextual desplaza el día completo S horas circularmente; collective invierte por pares la secuencia intra-día, preservando conteos por sensor y hora.
+Código: `src/evaluation/anomaly_injectors.py` (`inject_point_events`, `inject_contextual_events`, `inject_collective_events`)
+Referencia: Chandola, Mithal & Kumar (2012), "Anomaly Detection for Discrete Sequences: A Survey".
+
+P: ¿Cómo se regula la intensidad de las inyecciones de anomalías en las casas sintéticas?
+
+R: Cada tipo tiene presets low/med/high: point añade una fracción del conteo diario (0.5/1.0/2.0); contextual desplaza 1/3/5 horas; collective invierte 0.25/0.55/1.0 de la secuencia. Centralizado en `INTENSITY_PRESETS`.
+Código: `src/evaluation/anomaly_injectors.py` (`POINT_INTENSITIES`, `CONTEXTUAL_INTENSITIES`, `COLLECTIVE_INTENSITIES`, `INTENSITY_PRESETS`)
+Referencia: Chandola, Mithal & Kumar (2012), "Anomaly Detection for Discrete Sequences: A Survey".
+
+## 3 · Playground 2D
+
+P: ¿Cómo se inyectan anomalías en el 2D Playground?
+
+R: Puntos uniformes en un rango fijo se concatenan con los inliers etiquetados como anómalos y se permutan aleatoriamente; la proporción se controla desde la interfaz.
+Código: `src/teaching/synthetic_2d_datasets.py` (`SyntheticDatasetGenerator`)
+Referencia: Chandola et al., "Anomaly Detection: A Survey", ACM Computing Surveys, 41(3), 2009.
+
+P: ¿Qué significan los puntos azules, rojos, la línea de frontera y el mapa de calor, y cómo se implementan?
+
+R: Azules = inliers; rojos = anómalos (predicción del detector). El heatmap pinta el score [0,1] del detector sobre una malla 60×60 (`go.Contour`); la frontera es la isolínea zz = umbral, trazada con marching squares (`contour_polylines`).
+Código: `app/views/playground_view.py` (`_build_figure`) y `app/mesh.py` (`score_mesh`, `contour_polylines`)
+Referencia: "Novelty and Outlier Detection (scikit-learn)".
+
+## 4 · Extracción de características
+
+P: ¿Cuál es el propósito del extractor window aggregation y cómo funciona?
+
+R: Reduce cada día a un vector de 9 características (conteos, actividad horaria, entropías) para detectar anomalías contextuales y colectivas a nivel de día; no apto para anomalías point.
+Código: `src/features/daily_feature_extractors.py` (`TemporalFeatureExtractor`)
+Referencia: Cook (2012), "Learning Setting-Generalized Activity Models for Smart Spaces" y "Human activity recognition in smart homes with binary sensors: a survey".
+
+P: ¿Por qué la ventana de extracción es diaria en lugar de horaria, y cuál es la práctica común en HAR?
+
+R: La ventana diaria refleja la rutina diaria y evita ventanas vacías típicas de flujos ráfaga; es la agregación habitual en HAR con sensores binarios.
+Código: `src/features/daily_aggregates.py` (`daily_aggregates`)
+Referencia: Cook (2012), "Learning Setting-Generalized Activity Models for Smart Spaces" y "Human activity recognition in smart homes with binary sensors: a survey".
+
+P: ¿Cuál es el propósito y funcionamiento del extractor IEI?
+
+R: Cuantifica la regularidad temporal de los intervalos entre eventos consecutivos; calcula media, desviación, CV y factor de Fano para detectar burstiness: un día con ráfaga nocturna genera CV/Fano elevados y media reducida.
+Código: `src/features/daily_feature_extractors.py` (`IntervalStatisticsExtractor`, `_intervals_seconds`, `_fano_factor`)
+Referencia: Cox & Lewis, "The Statistical Analysis of Series of Events".
+
+P: ¿Qué es el factor de Fano?
+
+R: Razón varianza/media del conteo de eventos en bins temporales fijos; mide sobredispersión. Igual a 1 es Poisson; mayor que 1 indica burstiness; menor, regularidad. Útil para detectar ráfagas de actividad.
+Código: `src/features/daily_feature_extractors.py` (`IntervalStatisticsExtractor._fano_factor`)
+Referencia: Cox & Lewis, "The Statistical Analysis of Series of Events".
+
+P: ¿Cuál es el propósito y funcionamiento del extractor N-gram transition?
+
+R: Modela la secuencia de sensores como cadena de Markov de primer orden; resume cada día con entropía de transición, probabilidad de la transición dominante y ratio de bigramas únicos para detectar anomalías colectivas.
+Código: `src/features/daily_feature_extractors.py` (`NGramTransitionExtractor`, `_features_for_group`)
+Referencia: Shannon, "A Mathematical Theory of Communication" (1948).
+
+P: ¿Cuál es la diferencia entre NextEventTransitionExtractor y NGramTransitionExtractor?
+
+R: NGram resume el día en agregados (entropía, bigramas únicos) invariantes a la inversión exacta; NextEvent aprende la matriz de las normales y puntúa cada transición por su log-verosimilitud, capturando eventos improbables individuales no diluidos por agregación.
+Código: `src/features/daily_feature_extractors.py`
+Referencia: Du et al. (2017), "DeepLog: Anomaly Detection and Diagnosis from System Logs through Deep Learning".
+
+## 5 · Detectores vectoriales
+
+P: ¿Cómo funciona el detector Z-Score y qué significa su parámetro deslizable?
+
+R: Anómalo si algún |z| por característica supera el umbral en desviaciones típicas. Threshold (std): k desviaciones; región normal ±k·σ por eje.
+Código: `src/detectors/vectorial/zscore_detector.py` (`ZScoreDetector`)
+Referencia: "Detection of Outliers (NIST e-Handbook, §1.3.5.17)".
+
+P: ¿Cómo funciona el detector Mahalanobis y qué significa su parámetro deslizable?
+
+R: Distancia al centroide normalizada por la covarianza (elipses). Threshold percentile: percentil de la distancia en train (95) que fija la frontera.
+Código: `src/detectors/vectorial/mahalanobis_detector.py` (`MahalanobisDetector`)
+Referencia: Mahalanobis (1936), "On the Generalised Distance in Statistics".
+
+P: ¿Qué es el estimador MCD?
+
+R: Minimum Covariance Determinant: estima la media y la covarianza usando solo el subconjunto de h puntos densos con menor determinante (volumen), ignorando outliers del train.
+Código: `src/detectors/vectorial/elliptic_envelope_detector.py` (`EllipticEnvelopeDetector`) y `gaussian_fallback.py` (`is_mcd_safe`)
+Referencia: Rousseeuw & Van Driessen (1999), "A Fast Algorithm for the Minimum Covariance Determinant Estimator".
+
+P: ¿Cómo se diferencian Mahalanobis, Elliptic Envelope y Robust Covariance?
+
+R: Los tres miden la distancia de Mahalanobis. Mahalanobis usa parámetros empíricos; Robust Covariance, MCD con percentil; Elliptic Envelope, la elipse MCD como frontera.
+Código: `src/detectors/vectorial/` (`MahalanobisDetector`, `RobustCovarianceDetector`, `EllipticEnvelopeDetector`)
+Referencia: Hubert, Debruyne & Rousseeuw (2018), "Minimum Covariance Determinant and Extensions".
+
+P: ¿Cómo funciona el detector Elliptic Envelope y qué significa su parámetro deslizable?
+
+R: Frontera elíptica Gaussiana robusta (MCD). Contamination: proporción esperada de anómalos que determina el radio de la elipse.
+Código: `src/detectors/vectorial/elliptic_envelope_detector.py` (`EllipticEnvelopeDetector`)
+Referencia: Rousseeuw & Van Driessen (1999), "A Fast Algorithm for the Minimum Covariance Determinant Estimator".
+
+P: ¿Cómo funciona el detector Robust Covariance y qué significa su parámetro deslizable?
+
+R: Covarianza de alto break-down sobre el subconjunto denso (MCD). Contamination: fracción de anómalos que fija el umbral de la distancia de Mahalanobis.
+Código: `src/detectors/vectorial/robust_covariance_detector.py` (`RobustCovarianceDetector`)
+Referencia: Rousseeuw & Van Driessen (1999), "A Fast Algorithm for the Minimum Covariance Determinant Estimator".
+
+P: ¿Cómo funciona el detector Isolation Forest y qué significan sus parámetros deslizables?
+
+R: Aísla anómalos mediante particiones aleatorias: requieren pocos cortes. Contamination (fracción esperada de anómalos), Trees (nº de árboles), Max samples (muestra por árbol).
+Código: `src/detectors/vectorial/iforest_detector.py` (`IsolationForestDetector`)
+Referencia: Liu, Ting & Zhou (2008), "Isolation Forest".
+
+P: ¿Cómo funciona el detector Extended IForest y qué significan sus parámetros deslizables?
+
+R: Igual que Isolation Forest pero con cortes oblicuos aleatorios que eliminan el sesgo axial. Mismos parámetros: Contamination, Trees y Max samples, con idéntico significado.
+Código: `src/detectors/vectorial/iforest_detector.py` (`IsolationForestDetector` con `sliced_path`)
+Referencia: Hariri et al. (2019), "Extended Isolation Forest".
+
+P: ¿Cómo funciona el detector KNN y qué significan sus parámetros deslizables?
+
+R: Puntúa por la distancia al k-ésimo vecino más cercano. Neighbors (k, alcance del vecindario) y Contamination (fracción esperada de anómalos que fija el umbral).
+Código: `src/detectors/vectorial/knn_detector.py` (`KNNDetector`)
+Referencia: Ramaswamy, Rastogi & Shim (2000), "Efficient Algorithms for Mining Outliers from Large Data Sets".
+
+P: ¿Cómo funciona el detector LOF y qué significan sus parámetros deslizables?
+
+R: Compara la densidad local de un punto con la de sus k vecinos. Neighbors: tamaño del vecindario local; Contamination: fracción esperada de anómalos.
+Código: `src/detectors/vectorial/lof_detector.py` (`LOFDetector`)
+Referencia: Breunig et al. (2000), "LOF: Identifying Density-Based Local Outliers".
+
+P: ¿Cómo funciona el detector OC-SVM (RBF) y qué significan sus parámetros deslizables?
+
+R: Aprende un límite flexible en espacio kernel RBF que envuelve las normales. Nu: fracción esperada de anómalos; Gamma: anchura del kernel.
+Código: `src/detectors/vectorial/ocsvm_detector.py` (`OCSVMDetector`)
+Referencia: Schölkopf et al. (2000), "Support Vector Method for Novelty Detection".
+
+P: ¿Cómo funciona el detector OC-SVM (Linear) y qué significa su parámetro deslizable?
+
+R: Frontera plana que separa las normales del origen en el espacio original. Nu: fracción esperada de anómalos. Un solo parámetro.
+Código: `src/detectors/vectorial/ocsvm_detector.py` (`OCSVMDetector`)
+Referencia: Schölkopf et al. (2000), "Support Vector Method for Novelty Detection".
+
+P: ¿Cómo funciona el detector OC-SVM (Poly) y qué significan sus parámetros deslizables?
+
+R: Curva polinomial que separa las normales del origen. Nu: fracción esperada de anómalos; Gamma: escala del kernel polinómico.
+Código: `src/detectors/vectorial/ocsvm_detector.py` (`OCSVMDetector`)
+Referencia: Schölkopf et al. (2000), "Support Vector Method for Novelty Detection".
+
+P: ¿Cuál es la diferencia entre los detectores OC-SVM?
+
+R: Difieren únicamente en el kernel. OC-SVM (Linear) aprende una frontera afín en el espacio original, válida solo para clases linealmente separables. OC-SVM (RBF) emplea el kernel gaussiano K(x,x')=exp(−γ‖x−x'‖²): mapeo implícito a un espacio de dimensión infinita que produce una frontera no convexa envolvente, donde γ regula su suavidad. OC-SVM (Poly) usa un kernel polinómico de grado fijo.
+Código: `src/detectors/vectorial/ocsvm_detector.py` (`OCSVMDetector`)
+Referencia: Schölkopf et al. (2000), "Support Vector Method for Novelty Detection".
+
+P: ¿Cuál es la diferencia entre gamma "auto", "scale" y un valor concreto?
+
+R: γ es el radio de influencia del kernel RBF. `scale` → γ = 1/(n_features × Var(X)): calcula γ a partir de la dispersión de tus datos; si están muy dispersos, la usa más pequeña automáticamente. `auto` → γ = 1/n_features: ignora la dispersión; en 2D daría γ=0.5. Un valor concreto (0.01, 0.1, 0.5, 1.0) es γ fijo, decidido a mano. γ mayor ⇒ frontera más ajustada (sobreajuste).
+Código: `src/detectors/vectorial/ocsvm_detector.py` (`OCSVMDetector`)
+Referencia: "Novelty and Outlier Detection (scikit-learn)".
+
+P: ¿Cómo funciona el detector PCA Reconstruction y qué significan sus parámetros deslizables?
+
+R: Proyecta al subespacio principal y mide el error de reconstrucción. Components: direcciones principales retenidas; Threshold percentile: percentil del error en train que fija la frontera.
+Código: `src/detectors/vectorial/pca_reconstruction_detector.py` (`PCAReconstructionDetector`)
+Referencia: Bishop (2006), "Pattern Recognition and Machine Learning".
+
+## 6 · Detectores secuenciales
+
+P: ¿Cómo modela la dinámica temporal el detector HMM y qué significa `n_components`?
+
+R: Modela la secuencia de conteos diarios como un proceso de Markov oculto: estados latentes (regímenes) emiten observaciones gaussianas. `n_components` = nº de estados latentes (2–8); más estados capturan regímenes más finos.
+Código: `src/detectors/sequential/hmm_detector.py` (`HMMDetector`)
+Referencia: Rabiner (1989), "A Tutorial on Hidden Markov Models and Selected Applications in Speech Recognition".
+
+P: ¿Qué es un proceso Hawkes auto-excitante y cómo implementa la recursión de Ogata?
+
+R: Cada evento incrementa temporalmente la intensidad condicional λ(t) = μ + Σ α·exp(−β(t−tᵢ)); la recursión de Ogata (1988) computa la log-verosimilitud condicional en O(n) sin `tick`. Puntúa días por −log-likelihood.
+Código: `src/detectors/sequential/hawkes_detector.py` (`HawkesDetector`)
+Referencia: Ogata (1988), "Statistical Models for Earthquake Occurrences and Residual Analysis for Point Processes" (JASA 83(401)) + Rizoiu et al. (2017), "A Tutorial on Hawkes Processes for Events in Social Media".
+
+P: ¿Cómo puntúa secuencias el detector Markov Sequence?
+
+R: Aprende la matriz de transición de primer orden de las normales; la puntuación diaria es la media de la log-verosimilitud negativa de las transiciones reales bajo esa matriz (umbral = percentil 90 en train).
+Código: `src/detectors/sequential/markov_sequence_detector.py` (`MarkovSequenceDetector`)
+Referencia: Du et al. (2017), "DeepLog: Anomaly Detection and Diagnosis from System Logs through Deep Learning" + Chandola, Mithal & Kumar (2012), "Anomaly Detection for Discrete Sequences: A Survey".
+
+## 7 · Ensemble y pipeline
+
+P: ¿Por qué el scaler se ajusta solo en train y el split es 70/30 temporal (no aleatorio)?
+
+R: Evita *data leakage*: la media/desviación del scaler no deben ver el holdout. El split temporal (prefix 70% / tail 30%) respeta la autonomía diaria y simula despliegue real: entrenar en pasado, detectar en futuro.
+Código: `src/features/daily_aggregates.py` (`FeatureScaler`, `extract_by_date`)
+Referencia: Cook (2012), "Learning Setting-Generalized Activity Models for Smart Spaces".
+
+P: ¿Por qué cada detector normaliza sus scores a [0,1] en `fit` y cómo afecta al ensemble?
+
+R: El ensemble suma scores ponderados; sin normalización, detectores con escalas distintas (ej. Z-Score ilimitado vs LOF acotado) dominarían. Cada detector guarda `score_min`/`score_max` en `fit` y aplica min-max en `predict`.
+Código: `src/detectors/base.py` (`BaseDetector._scores_to_unit`)
+Referencia: Aggarwal & Sathe (2015), "Theoretical Foundations and Algorithms for Outlier Ensembles".
+
+P: ¿Cómo funciona el soft ensemble?
+
+R: Regla de la suma ponderada: cada detector devuelve su score en [0,1]; la puntuación final es S = Σ wᵢ sᵢ. El umbral es el percentil del score sobre train; un día es anómalo si S > umbral.
+Código: `src/detectors/ensemble.py` (`EnsembleDetector._predict_raw`, `EnsembleDetector.fit`)
+Referencia: Aggarwal & Sathe (2015), "Theoretical Foundations and Algorithms for Outlier Ensembles" / Aggarwal (2013), "On the Combination of Outlier Detection Algorithms".
+
+P: ¿Cómo se fija el umbral del soft ensemble?
+
+R: Umbral empírico no paramétrico: percentil 90 del score combinado sobre train, asumiendo que el 10% de los días de entrenamiento son los más extremos; en predict, S > umbral implica anomalía.
+Código: `src/detectors/ensemble.py` (`EnsembleDetector.fit`) y `src/detectors/constants.py` (`DEFAULT_ENSEMBLE_THRESHOLD_PERCENTILE`)
+Referencia: Aggarwal & Sathe (2015), "Theoretical Foundations and Algorithms for Outlier Ensembles".
+
+P: ¿Cómo funciona el hard ensemble?
+
+R: Voto mayoritario ponderado: cada detector emite su voto binario con su umbral aprendido en fit; el score final es Σ wᵢ vᵢ (fracción ponderada de votos positivos); anómalo si supera 0.5, umbral fijo.
+Código: `src/detectors/ensemble.py` (`EnsembleDetector._predict_raw`, `EnsembleDetector.fit`)
+Referencia: Aggarwal (2013), "On the Combination of Outlier Detection Algorithms".
+
+P: ¿Cómo funcionan los pesos del ensemble y se pueden personalizar?
+
+R: Por defecto uniformes (1/n). Se pasan como array `weights` al `EnsembleDetector`; deben sumar 1. La app permite seleccionar detectores (toggle) y sus pesos se re-normalizan.
+Código: `src/detectors/ensemble.py` (`EnsembleDetector.__init__`)
+Referencia: Aggarwal & Sathe (2015), "Theoretical Foundations and Algorithms for Outlier Ensembles".
+
+P: ¿Cómo se mapea `contamination` al percentil de umbral y cuáles son los defaults?
+
+R: `contamination_percentile(c) = 100·(1−c)`. `DEFAULT_DETECTOR_THRESHOLD_PERCENTILE=95` (contamination≈0.05); `DEFAULT_ENSEMBLE_THRESHOLD_PERCENTILE=90`. Cada detector usa su percentil en `fit`; el ensemble usa el suyo sobre el score combinado.
+Código: `src/detectors/constants.py` (`contamination_percentile`)
+Referencia: Aggarwal (2013), "On the Combination of Outlier Detection Algorithms".
+
+P: ¿Por qué Hawkes recibe solo conteos crudos mientras otros usan features escaladas?
+
+R: Hawkes modela un proceso de Poisson cuya intensidad es válida solo para conteos enteros (`n_events`, `n_sensors`, `activity_hours`). Features escaladas (z-score) rompen la interpretación probabilística; `detector_inputs` enruta el subset correcto a cada detector.
+Código: `src/detectors/ensemble.py` (`EnsembleDetector._input_for`)
+Referencia: Hawkes (1971), "Spectra of Some Self-Exciting and Mutually Exciting Point Processes" + Ogata (1988), "Statistical Models for Earthquake Occurrences and Residual Analysis for Point Processes".

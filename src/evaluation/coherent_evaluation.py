@@ -48,7 +48,7 @@ from detectors.constants import (
     DEFAULT_RANDOM_STATE,
     DEFAULT_TRAIN_SPLIT,
 )
-from evaluation.event_injection import (
+from evaluation.anomaly_injectors import (
     COLLECTIVE_INTENSITIES,
     CONTEXTUAL_INTENSITIES,
     POINT_INTENSITIES,

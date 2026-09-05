@@ -2,10 +2,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ingestion.markov_generator import (
-    build_movement_graph,
-    generate_daily_events,
-    generate_house_stream,
+from ingestion.casas_stream_generator import (
+    build_weighted_graph,
+    simulate_day,
+    simulate_house,
 )
 
 RNG_SEED = 7
@@ -18,14 +18,14 @@ def rng() -> np.random.Generator:
 
 @pytest.fixture
 def movement_graph() -> dict:
-    return build_movement_graph({"door_activity": 1.0})
+    return build_weighted_graph({"door_activity": 1.0})
 
 
 def _events_markov(n_days: int, rng, graph) -> pd.DataFrame:
     """A normal multi-day stream in the injector/loader CSV schema."""
     days = []
     for d in range(n_days):
-        rows = generate_daily_events(
+        rows = simulate_day(
             rng,
             pd.Timestamp("2024-01-01") + pd.Timedelta(days=d),
             180,
@@ -52,7 +52,7 @@ def casas_stream(rng, movement_graph) -> pd.DataFrame:
 @pytest.fixture
 def house_stream() -> pd.DataFrame:
     """A full 60-day house stream in raw CSV schema (date/time/sensor/reading)."""
-    return generate_house_stream(
+    return simulate_house(
         house_id="aruba", events_mean=180, night_ratio=0.08, n_days=60, seed=1
     )
 

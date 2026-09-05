@@ -6,7 +6,7 @@ from detectors.constants import (
     DEFAULT_RANDOM_STATE,
     contamination_percentile,
 )
-from detectors.vectorial.classical_gaussian import ClassicalGaussian, is_mcd_safe
+from detectors.vectorial.gaussian_fallback import ClassicalGaussian, is_mcd_safe
 
 
 class RobustCovarianceDetector(BaseDetector):

@@ -42,7 +42,7 @@ DAY_HOUR_WEIGHTS: list[float] = [
 ]  # hours 8..21
 
 
-def hour_to_band(hour: int) -> int:
+def get_band(hour: int) -> int:
     """Map an hour-of-day to its movement-graph band."""
     if 6 <= hour < 11:
         return BAND_MORNING
@@ -85,12 +85,8 @@ _BASE_WEIGHTS: dict[int, dict[str, dict[str, float]]] = {
 }
 
 
-def build_movement_graph(profile: dict) -> dict[tuple[int, str], dict[str, float]]:
-    """Directed movement graph: ``(band, source) -> {target: weight}``.
-
-    ``profile["door_activity"]`` (default 1.0) scales weights into/out of
-    OutsideDoor, giving each house a distinct routine while keeping asymmetry.
-    """
+def build_weighted_graph(profile: dict) -> dict[tuple[int, str], dict[str, float]]:
+    """Build (band, source) -> {target: weight} graph. OutsideDoor edges scaled by door_activity."""
     door_factor = float(profile.get("door_activity", 1.0))
     graph: dict[tuple[int, str], dict[str, float]] = {}
     for band, band_weights in _BASE_WEIGHTS.items():
@@ -103,39 +99,23 @@ def build_movement_graph(profile: dict) -> dict[tuple[int, str], dict[str, float
     return graph
 
 
-def transition_probabilities(graph, band: int, source: str) -> dict[str, float]:
-    """Normalized ``{target: probability}`` for a (band, source) row."""
+def normalize_weights_to_probabilities(graph, band: int, source: str) -> dict[str, float]:
+    """Normalize weights to probabilities for a (band, source) row."""
     weights = graph[(band, source)]
     total = sum(weights.values())
     return {target: w / total for target, w in weights.items()}
 
 
-def graph_entropy_ratio(graph: dict) -> float:
-    """Mean transition entropy over (band, source) rows, normalized by log2(n_sensors).
-
-    DoD gate requires < 0.70 (peaked graph, not uniform).
-    """
-    n_sensors = len(SENSORS)
-    ratios = []
-    for band in range(4):
-        for source in SENSORS:
-            probs = np.array(list(transition_probabilities(graph, band, source).values()))
-            probs = probs[probs > 0]
-            entropy_bits = float(-(probs * np.log2(probs)).sum())
-            ratios.append(entropy_bits / np.log2(n_sensors))
-    return float(np.mean(ratios))
-
-
-def draw_next_sensor(rng, prev_sensor: str, hour: int, graph: dict, noise: float = NOISE) -> str:
+def sample_next_sensor(rng, prev_sensor: str, hour: int, graph: dict, noise: float = NOISE) -> str:
     """Sample the next sensor from the graph given the previous sensor and hour band."""
-    band = hour_to_band(hour)
+    band = get_band(hour)
     probs = np.array([graph[(band, prev_sensor)][target] for target in SENSORS], dtype=float)
     probs = probs / probs.sum()
     mixed = (1.0 - noise) * probs + noise / len(SENSORS)
     return SENSORS[int(rng.choice(len(SENSORS), p=mixed))]
 
 
-def draw_regime_sequence(rng, n_days: int) -> list[dict]:
+def sample_regime_sequence(rng, n_days: int) -> list[dict]:
     """Draw the latent day regime for each day (sticky Markov chain)."""
     states = []
     current = int(rng.integers(0, len(REGIMES)))
@@ -152,7 +132,41 @@ def _reading_for(sensor: str, rng) -> str:
     return rng.choice(["ON", "OFF"])
 
 
-def generate_daily_events(
+def simulate_sensor_sequence(
+    rng,
+    timestamps: list,
+    graph: dict,
+    noise: float = NOISE,
+) -> list[str]:
+    """Generate sensor sequence by walking the movement graph."""
+    n_events = len(timestamps)
+    first = SENSORS[int(rng.integers(0, len(MOTION_SENSORS)))]
+    sensors = [first]
+    for i in range(1, n_events):
+        sensors.append(sample_next_sensor(rng, sensors[-1], timestamps[i].hour, graph, noise))
+    return sensors
+
+
+def format_event_rows(
+    timestamps: list,
+    sensors: list[str],
+    rng,
+) -> list[tuple[str, str, str]]:
+    """Format (date, time, sensor_id, reading) tuples for CSV output."""
+    rows = []
+    for ts, sensor in zip(timestamps, sensors, strict=True):
+        rows.append(
+            (
+                ts.strftime("%Y-%m-%d"),
+                ts.strftime("%H:%M:%S.%f"),
+                sensor,
+                _reading_for(sensor, rng),
+            )
+        )
+    return rows
+
+
+def simulate_day(
     rng,
     date,
     events_mean: float,
@@ -161,10 +175,9 @@ def generate_daily_events(
     regime: dict,
     noise: float = NOISE,
 ) -> list[tuple[str, str, str]]:
-    """One day of events as ``(time_str, sensor_id, reading)`` tuples.
+    """One day of events as ``(date, time, sensor_id, reading)`` tuples.
 
-    Draw timestamps (day/night hours per ``night_ratio``), then walk the graph to
-    assign each event a sensor conditioned on its hour band.
+    Pipeline: timestamps -> sensor sequence -> formatted rows.
     """
     n_events = max(1, int(rng.poisson(events_mean * regime["event_factor"])))
     night_ratio = min(0.5, max(0.01, night_ratio + regime["night_offset"]))
@@ -191,26 +204,11 @@ def generate_daily_events(
     ]
     timestamps.sort()
 
-    # Markov walk over the movement graph, conditioned on each event's hour.
-    first = SENSORS[int(rng.integers(0, len(MOTION_SENSORS)))]
-    sensors = [first]
-    for i in range(1, n_events):
-        sensors.append(draw_next_sensor(rng, sensors[-1], timestamps[i].hour, graph, noise))
-
-    rows = []
-    for ts, sensor in zip(timestamps, sensors, strict=True):
-        rows.append(
-            (
-                ts.strftime("%Y-%m-%d"),
-                ts.strftime("%H:%M:%S.%f"),
-                sensor,
-                _reading_for(sensor, rng),
-            )
-        )
-    return rows
+    sensors = simulate_sensor_sequence(rng, timestamps, graph, noise)
+    return format_event_rows(timestamps, sensors, rng)
 
 
-def generate_house_stream(
+def simulate_house(
     *,
     house_id: str,  # noqa: ARG001 - part of the public API signature
     events_mean: int,
@@ -221,31 +219,27 @@ def generate_house_stream(
 ) -> pd.DataFrame:
     """Full event stream for one house as a DataFrame in CSV schema.
 
+    Three simulation layers:
+    - simulate_sensor_sequence: generates sensor sequence for given timestamps (Markov walk)
+    - simulate_day: generates timestamps + sensor sequence + formats rows for one day
+    - simulate_house: coordinates regimes across n_days, calls simulate_day for each day
+
     Draws per-day regimes, then walks the graph each day. Deterministic per seed.
     """
     rng = np.random.default_rng(seed)
-    graph = build_movement_graph({"door_activity": 1.0})
-    regimes = draw_regime_sequence(rng, n_days)
+    graph = build_weighted_graph({"door_activity": 1.0})
+    regimes = sample_regime_sequence(rng, n_days)
     start = pd.Timestamp(start_date)
 
     all_rows = []
     for day_offset, regime in enumerate(regimes):
         date = start + pd.Timedelta(days=day_offset)
         all_rows.extend(
-            generate_daily_events(
+            simulate_day(
                 rng, date, events_mean, night_ratio, graph, regime
             )
         )
     return pd.DataFrame(all_rows, columns=["date", "time", "sensor_id", "reading"])
 
 
-def first_order_autocorrelation(values: np.ndarray) -> float:
-    """Lag-1 autocorrelation coefficient of a 1-D series (Pearson)."""
-    values = np.asarray(values, dtype=float)
-    if len(values) < 4:
-        return 0.0
-    x, y = values[:-1], values[1:]
-    x_std, y_std = x.std(), y.std()
-    if x_std == 0 or y_std == 0:
-        return 0.0
-    return float(((x - x.mean()) * (y - y.mean())).mean() / (x_std * y_std))
+

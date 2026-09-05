@@ -1,17 +1,20 @@
 """Frequently Asked Questions (FAQ) for the app.
 
-One plain-language entry per concept: question, an intuitive answer, and the
-curated references that back it (reused from ``references.py`` as a single source
-of papers / DOIs). Each answer points to the code that implements the idea, so a
-curious visitor can go from "how does it work?" to the actual source file.
+Renders the curated Q&A blocks from ``fyq.txt`` (project root), the single source
+of truth for the questions shown in the app's FyQ modal. Each entry keeps the
+question, a short technical answer, the code reference (file + function/class) and
+the bibliographic reference curated from ``app/references.py``. The ``## ...``
+section headers in ``fyq.txt`` become the grouping headings in the UI.
 """
 
 from __future__ import annotations
 
 import html
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass
+from pathlib import Path
 
-from references import Resource
+_FYQ_PATH = Path(__file__).resolve().parent.parent / "fyq.txt"
 
 
 # ----------------------------------------------------------------------------
@@ -19,106 +22,154 @@ from references import Resource
 # ----------------------------------------------------------------------------
 @dataclass(frozen=True)
 class FaqEntry:
-    """One FAQ item: question, plain answer, and clicking sources.
+    """One FAQ item parsed from ``fyq.txt``.
 
-    ``references`` is a ``(Resource, note)`` list where ``note`` is the short
-    "[n]" citation label shown in the UI.
+    ``category`` is the ``## ...`` heading that groups questions in the UI;
+    ``code`` and ``reference`` are the optional ``Código`` / ``Referencia`` lines.
     """
 
+    category: str
     question: str
     answer_md: str
-    references: tuple[Resource, ...] = field(default_factory=tuple)
+    code: str = ""
+    reference: str = ""
 
 
 # ----------------------------------------------------------------------------
-# The FAQ registry (start with one entry to validate the UX before expanding)
+# fyq.txt parser (single source of truth)
 # ----------------------------------------------------------------------------
-def _synthetic_generation_refs() -> tuple[Resource, ...]:
-    """Curated sources that back the synthetic-house-generation answer."""
-    from references import RESOURCES
-
-    titles = {
-        "A Tutorial on Hidden Markov Models and Selected Applications in Speech Recognition",
-        "Anomaly Detection for Discrete Sequences: A Survey",
-    }
-    return tuple(res for res in RESOURCES if res.title in titles)
-
-
-def build_faq() -> tuple[FaqEntry, ...]:
-    """Return the FAQ entries in display order."""
-    return (
-        FaqEntry(
-            question="How is a synthetic house generated?",
-            answer_md=(
-                "The synthetic CASAS houses are drawn by a **first-order Markov model** "
-                "of a resident moving room to room. The movement graph is asymmetric "
-                "(a directed cycle Bedroom -> Kitchen -> LivingRoom, with near-zero "
-                "backward edges) and depends on the hour band, so normal days follow a "
-                "consistent routine. A **sticky latent day regime** (a day stays in the "
-                "same 'quiet / typical / active' state with probability about 0.75) adds "
-                "day-to-day autocorrelation. The asymmetry matters: a reversed day only "
-                "looks abnormal because the backward transitions are rare here — on "
-                "symmetric data this anomaly would be invisible. See "
-                "`src/ingestion/markov_generator.py`."
-            ),
-            references=_synthetic_generation_refs(),
-        ),
+def _make_entry(data: dict[str, str], category: str) -> FaqEntry:
+    """Build a :class:`FaqEntry` from an already-parsed field dict."""
+    return FaqEntry(
+        category=category,
+        question=data.get("question", ""),
+        answer_md=data.get("answer_md", ""),
+        code=data.get("code", ""),
+        reference=data.get("reference", ""),
     )
+
+
+def _read_entries() -> list[FaqEntry]:
+    """Parse ``fyq.txt`` into :class:`FaqEntry` objects in display order.
+
+    Recognized lines: ``##`` (section heading), ``P:`` (question, starts a new
+    entry), ``R:`` / ``Código:`` / ``Referencia:`` (fields of the current entry).
+    Blank lines and ``#`` comment lines are skipped; any other line continues the
+    last field, so multi-line answers survive intact.
+    """
+    entries: list[FaqEntry] = []
+    category = "General"
+    current: dict[str, str] | None = None
+    field: str = ""
+
+    for raw in _FYQ_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line.startswith("## "):
+            category = line[3:].strip()
+            continue
+        if not line or line.startswith("#"):
+            continue
+        if current is None:
+            if not line.startswith("P: "):
+                continue
+            current = {"question": line[3:].strip()}
+            field = "question"
+        elif line.startswith("P: "):
+            entries.append(_make_entry(current, category))
+            current = {"question": line[3:].strip()}
+            field = "question"
+        elif line.startswith("R: "):
+            current["answer_md"] = line[3:].strip()
+            field = "answer_md"
+        elif line.startswith("Código: "):
+            current["code"] = line[len("Código: ") :].strip()
+            field = "code"
+        elif line.startswith("Referencia: "):
+            current["reference"] = line[len("Referencia: ") :].strip()
+            field = "reference"
+        elif field:
+            current[field] = f"{current[field]} {line}"
+
+    if current is not None:
+        entries.append(_make_entry(current, category))
+    return entries
+
+
+# ----------------------------------------------------------------------------
+# The FAQ registry (single source is ``fyq.txt``)
+# ----------------------------------------------------------------------------
+def build_faq() -> list[FaqEntry]:
+    """Return the FAQ entries in display order (the ``fyq.txt`` file order)."""
+    return _read_entries()
 
 
 # ----------------------------------------------------------------------------
 # Renderer
 # ----------------------------------------------------------------------------
 def _inline_md(text: str) -> str:
-    """Minimal inline-Markdown -> HTML for the FAQ content (bold, code, links).
+    """Minimal inline-Markdown -> HTML for the FAQ content (bold, italic, code, links).
 
-    Only the subset used by the FAQ answers is handled: ``**bold**``, ```backticks```
-    and ``[label](url)`` links. Everything else is escaped so untrusted/wonky text
-    never injects markup.
+    Only the subset used by the FAQ answers is handled: ``**bold**``, ``*italic*``,
+    ```backticks``` and ``[label](url)`` links. Everything else is escaped so
+    untrusted/wonky text never injects markup.
     """
-    import re
-
     text = html.escape(text)
 
-    def _link(m):
+    def _link(m: re.Match[str]) -> str:
         label, url = m.group(1), m.group(2)
         return f'<a href="{html.escape(url)}" target="_blank" rel="noopener">{label}</a>'
 
     text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", _link, text)
     text = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"\*([^*\s][^*]*)\*", r"<i>\1</i>", text)
     text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
     return text
 
 
 def render_faq_html() -> str:
-    """Render the FAQ as compact, clearly separated question cards.
+    """Render the FAQ as compact, clearly separated question cards per section.
 
-    Each question is its own bordered card; references are minimal short links
-    (the full title is kept as a hover tooltip so the block stays tiny).
+    Each ``## ...`` heading in ``fyq.txt`` becomes a section heading; every question
+    is its own bordered card with the answer, the code reference and the source.
     """
     blocks = ['<div class="fq-list">']
-    for idx, entry in enumerate(build_faq(), start=1):
+    previous: str | None = None
+    within = 0
+
+    for entry in build_faq():
+        if entry.category != previous:
+            blocks.append(
+                "<div class='fq-group-title'>"
+                f"{html.escape(entry.category)}"
+                "</div>"
+            )
+            previous = entry.category
+            within = 0
+        within += 1
+
         blocks.append("<div class='fq-card'>")
         blocks.append(
             "<div class='fq-q'>"
-            f"<span class='fq-num'>{idx}</span>"
+            f"<span class='fq-num'>{within}</span>"
             f"<span>{html.escape(entry.question)}</span>"
             "</div>"
         )
         blocks.append(f"<div class='fq-answer'>{_inline_md(entry.answer_md)}</div>")
-        if entry.references:
-            refs = []
-            for n, res in enumerate(entry.references, start=1):
-                refs.append(
-                    f"<a class='fq-ref' href='{html.escape(res.url)}' "
-                    f"target='_blank' rel='noopener' title='{html.escape(res.title)}'>[{n}]</a>"
-                )
+        if entry.code:
+            blocks.append(
+                "<div class='fq-refs'>"
+                "<span class='fq-refs-label'>Código:</span>"
+                f"<span>{_inline_md(entry.code)}</span>"
+                "</div>"
+            )
+        if entry.reference:
             blocks.append(
                 "<div class='fq-refs'>"
                 "<span class='fq-refs-label'>Fuente:</span>"
-                + " ".join(refs)
-                + "</div>"
+                f"<span>{_inline_md(entry.reference)}</span>"
+                "</div>"
             )
         blocks.append("</div>")
+
     blocks.append("</div>")
     return "".join(blocks)

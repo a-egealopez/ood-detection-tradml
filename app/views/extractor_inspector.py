@@ -29,13 +29,13 @@ from components import (
 )
 from data_access import apply_injection, get_injection_config, load_all_events
 from detectors.constants import DEFAULT_RANDOM_STATE
-from features.event_driven_extractors import (
+from features.daily_feature_extractors import (
     IntervalStatisticsExtractor,
     NextEventTransitionExtractor,
     NGramTransitionExtractor,
     TemporalFeatureExtractor,
-    generate_synthetic_events,
 )
+from teaching.synthetic_2d_datasets import generate_synthetic_events
 from theme import (
     ANOMALY,
     ANOMALY_SOFT,
@@ -763,7 +763,7 @@ def _render_inspector(data_source: str, method_name: str) -> None:
     )
 
 
-def render_feature_extraction_view() -> None:
+def render_extractor_inspector() -> None:
     breadcrumb(
         [("Data", False), ("Features", True), ("Detect", False), ("Ensemble", False)]
     )

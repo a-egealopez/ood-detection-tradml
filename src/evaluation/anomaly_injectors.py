@@ -1,64 +1,40 @@
-"""Event-level anomaly injectors (point + contextual + collective) for the evaluation.
+"""Event-level anomaly injectors (point, contextual, collective) for evaluation.
 
-These operate on the *raw event stream* (not the extracted feature matrix), so the
-anomaly is introduced at the level where the sequential/order detectors live, and
-the features are re-extracted afterwards. Each injector changes the marginal
-statistics it is *supposed* to change and preserves the ones the other family of
-detectors would otherwise catch "by accident":
+Operate on raw event stream (not feature matrix). Each injector changes its target
+marginals and preserves the others:
 
-- ``inject_point_events``: *adds* a burst of extra events from one sensor at a fixed
-  unusual hour (3-4 AM) on an otherwise normal day — a "loud" day whose aggregate
-  features deviate. Changes total, per-sensor AND hourly counts by construction
-  (a volume anomaly has no invariants to preserve). Catches: distance / vectorial
-  family, and any model watching counts. Clean days are untouched.
-- ``inject_contextual_events``: *circularly shifts* an anomalous day's whole routine
-  by ``S`` hours (the resident behaved normally, just at the wrong time of day). Keeps
-  total, per-sensor counts and the sensor sequence; changes only the hourly
-  distribution — which is the context signal. Catches: Z-Score(night_activity),
-  predictive HMM, Hawkes (per-hour). Blind: next-event / Markov (order untouched).
-- ``inject_collective_events``: *reorders* a day's intra-day sensor sequence
-  (partial shuffle -> full reversal) while keeping every timestamp in place. Keeps
-  per-sensor AND per-hour counts identical; changes only the transition structure.
-  Catches: next-event / MarkovSequence / n-gram.  Blind: distance, HMM, Hawkes.
-  Requires *asymmetric* transitions to be visible (see ``transition_asymmetry``):
-  on symmetric data (typical real homes) a reversal produces no rare transitions.
+- inject_point_events: adds a night burst (3-4 AM) from one sensor — a "loud" day
+  deviating in aggregate features (n_events, peak_hour, night_activity). No invariants.
+- inject_contextual_events: circularly shifts an anomalous day's routine by S hours.
+  Preserves total/per-sensor counts and sensor sequence; changes hourly distribution.
+- inject_collective_events: reorders intra-day sensor sequence (partial/full reversal).
+  Preserves per-sensor AND per-hour counts; changes only transition structure.
+  Requires asymmetric transitions (see transition_asymmetry).
 
-All three are intensity-graded (low / medium / high) so the evaluation can check
-that a detector's AUROC rises monotonically with intensity.
+All three are intensity-graded (low/medium/high) for monotonic AUROC checks.
 """
 
 from __future__ import annotations
 
-import itertools
-from typing import cast
-
 import numpy as np
 import pandas as pd
 
-from features.common import event_sequence
-
-# Night window where displaced events are parked (02:00-05:00). Only used by the
-# DoD proxy checks; the contextual injector itself shifts whole days circularly.
+# Night window for DoD proxy checks (contextual injector shifts whole days).
 DISPLACEMENT_WINDOW = (2, 5)
 
-# Contextual: whole-day circular shift in hours (the routine happened S hours
-# later than usual). Collective: fraction of positions taken from the reversed
-# order (1.0 = full intra-day reversal). Point: extra night events as a fraction
-# of the day's own event count (1.0 = the burst doubles the day's activity).
+# Contextual: whole-day shift in hours. Collective: fraction of reversed order.
+# Point: extra events as fraction of day's event count.
 CONTEXTUAL_INTENSITIES = {"low": 1, "medium": 3, "high": 5}
 COLLECTIVE_INTENSITIES = {"low": 0.25, "medium": 0.55, "high": 1.0}
 POINT_INTENSITIES = {"low": 0.5, "medium": 1.0, "high": 2.0}
 
-# Uniform mapping of anomaly type -> intensity presets, shared by the app, the
-# evaluation CLI and the matrix runner (single source of truth).
 INTENSITY_PRESETS = {
     "point": POINT_INTENSITIES,
     "contextual": CONTEXTUAL_INTENSITIES,
     "collective": COLLECTIVE_INTENSITIES,
 }
 
-# Hour band where the point-anomaly burst is parked (3-4 AM: normally quiet).
-POINT_BURST_HOUR = (3, 4)
+POINT_BURST_HOUR = (3, 4)  # 3-4 AM: normally quiet
 
 
 def _with_date(df: pd.DataFrame) -> pd.DataFrame:
@@ -94,13 +70,9 @@ def inject_contextual_events(
 ) -> pd.DataFrame:
     """Circularly shift each anomalous day's whole routine by ``intensity`` hours.
 
-    Every event's clock time moves ``intensity`` hours later, wrapping around
-    midnight within the same calendar date. Total and per-sensor daily counts are
-    preserved exactly and the sensor *sequence is preserved* (the chronologically
-    sorted order rotates, so only the single wrap transition differs). The anomaly
-    is therefore only visible in the hourly distribution / context features
-    (night_activity, peak_hour, ...), which is the signal the context-sensitive
-    detectors (HMM, Hawkes, Z-Score) are meant to catch; order detectors stay blind.
+    Preserves total/per-sensor counts and sensor sequence (only wrap transition
+    differs). Anomaly visible only in hourly distribution (night_activity,
+    peak_hour), caught by Z-Score/HMM/Hawkes; order detectors stay blind.
     """
     df = _with_date(df)
     shift = pd.Timedelta(hours=int(intensity))
@@ -124,11 +96,9 @@ def inject_collective_events(
 ) -> pd.DataFrame:
     """Reorder each anomalous day's sensor sequence, timestamps untouched.
 
-    ``intensity`` = fraction of positions taken from the reversed order; 1.0 = the
-    full intra-day sequence is reversed. Because the reversed order is a permutation
-    of the day's own sensors and timestamps are never moved, per-sensor AND
-    per-hour daily counts are preserved exactly; only the transition structure
-    changes (rare when the movement graph is asymmetric).
+    intensity = fraction of reversed order (1.0 = full reversal). Per-sensor and
+    per-hour counts preserved; only transition structure changes (rare when graph
+    is asymmetric).
     """
     df = _with_date(df)
     if not anomaly_dates:
@@ -144,12 +114,8 @@ def inject_collective_events(
         reversed_order = sensors[::-1]
 
         new_sensors = sensors.copy()
-        # Genuine transpositions (i <-> n-1-i) selected in mirror-closed pairs.
-        # Swapping the value at i with the value at its mirror keeps the day's
-        # multiset intact: assigning isolated positions from the reversed order
-        # (without moving the displaced value out) would change the per-sensor
-        # counts and leak a feature anomaly the collective injector must not
-        # produce.
+        # Mirror-pair swaps (i <-> n-1-i) keep multiset intact.
+        # Isolated swaps from reversed order would change per-sensor counts.
         n_swapped = max(1, round(intensity * n))
         n_pairs = max(1, min(n // 2, n_swapped // 2))
         half = np.arange(n // 2)
@@ -176,14 +142,9 @@ def inject_point_events(
 ) -> pd.DataFrame:
     """Add a night burst of extra events to each anomalous day (a "loud" day).
 
-    ``intensity`` = extra events as a fraction of the day's own event count
-    (1.0 doubles the day's activity). The burst is parked at a fixed, normally
-    quiet hour band (3-4 AM) and fired from a single random sensor, so the day's
-    aggregate features (``n_events``, ``activity_hours``, ``peak_hour``,
-    ``night_activity``) deviate from the training distribution — the classic
-    *point* anomaly on the daily features. Clean days and the rest of the stream
-    are untouched. A point anomaly is allowed to change any marginal statistic:
-    the burst *is* the anomaly, so there are no invariants to preserve.
+    intensity = extra events as fraction of day's count (1.0 = double activity).
+    Burst at 3-4 AM from single random sensor. Deviates aggregate features
+    (n_events, activity_hours, peak_hour, night_activity). No invariants preserved.
     """
     df = _with_date(df)
     if not anomaly_dates:
@@ -218,77 +179,26 @@ def inject_point_events(
     return df.drop(columns=["date"])
 
 
-# ---------------------------------------------------------------------------
-# DoD helpers: marginal preservation and intensity-monotonicity proxies
-# ---------------------------------------------------------------------------
-
-
-def _hourly_counts(df: pd.DataFrame) -> dict[int, int]:
-    ts = pd.to_datetime(df["timestamp"])
-    return ts.dt.hour.value_counts().sort_index().to_dict()
-
-
-def marginal_diff(df_before: pd.DataFrame, df_after: pd.DataFrame) -> dict:
-    """Compare per-day marginal stats between two dataframes (same day).
-
-    Returns per-day dicts of differences in total events, per-sensor counts and
-    per-hour counts. ``df_before``/``df_after`` may span several days; each day is
-    compared independently.
-    """
-    before = _with_date(df_before)
-    after = _with_date(df_after)
-    report = {}
-    for date in sorted(set(before["date"])):
-        b = cast(pd.DataFrame, before[before["date"] == date])
-        a = cast(pd.DataFrame, after[after["date"] == date])
-        report[str(date)] = {
-            "total": int(len(a) - len(b)),
-            "sensor": {
-                k: int(a["sensor_id"].value_counts().get(k, 0) - v)
-                for k, v in b["sensor_id"].value_counts().items()
-            },
-            "hour": {
-                k: int(_hourly_counts(a).get(k, 0) - _hourly_counts(b).get(k, 0))
-                for k in set(_hourly_counts(b)) | set(_hourly_counts(a))
-            },
-        }
-    return report
-
-
-def rare_transition_rate(
-    df_anomalous: pd.DataFrame, extractor
-) -> float:
-    """Fraction of an anomalous day's transitions the model marks as rare."""
-    logprobs = extractor._transition_logprobs(df_anomalous)
-    if not logprobs:
-        return 0.0
-    return sum(1.0 for lp in logprobs if lp < extractor.rare_threshold_) / len(logprobs)
-
-
 def transition_asymmetry(df: pd.DataFrame, extractor=None) -> float:
-    """Mean direction imbalance of the pooled transition counts.
+    """Mean direction imbalance of pooled transition counts.
 
-    For every unordered pair of *distinct* sensors ``{a, b}`` we take
-    ``min(count(a->b), count(b->a)) / max(...)`` and average. 1.0 = perfectly
-    symmetric (a home where you move to and from each room equally often); 0.0 =
-    fully directional. Self-transitions (a->a) are excluded — they carry no
-    directionality information. The collective (order-reversal) injector is only
-    detectable by first-order transition models when this ratio is clearly below
-    1.0 — the reversed transitions must be *rare*, which requires the forward
-    direction to dominate. Real home data is usually near-symmetric, so the
-    reversal injector has nothing to exploit there by construction.
+    For each unordered pair {a,b}: min(count(a->b), count(b->a)) / max(...).
+    1.0 = perfectly symmetric; 0.0 = fully directional. Self-transitions excluded.
     """
+    from itertools import pairwise
+    from collections import Counter, defaultdict
+
     if extractor is not None:
         token_col = getattr(extractor, "token_col", "sensor_id")
+        from features.daily_aggregates import event_sequence
+
         sequence = event_sequence(df, token_col)
     else:
         df = df.copy()
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         sequence = df.sort_values("timestamp")["sensor_id"].astype(str).tolist()
 
-    from collections import Counter, defaultdict
-
-    fwd = Counter(itertools.pairwise(sequence))
+    fwd = Counter(pairwise(sequence))
     pairs = defaultdict(lambda: [0, 0])
     for (a, b), c in fwd.items():
         if a == b:

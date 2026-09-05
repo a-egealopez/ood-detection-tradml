@@ -21,13 +21,13 @@ from detectors.constants import DEFAULT_ENSEMBLE_THRESHOLD_PERCENTILE, DEFAULT_R
 from detectors.factory import build_detectors
 from faq import render_faq_html
 from streamlit_config import DETECTOR_DEFAULTS_LIST, DETECTOR_REGISTRY
-from teaching.datasets import SyntheticDatasetGenerator
+from teaching.synthetic_2d_datasets import SyntheticDatasetGenerator
 from theme import PRIMARY, SUCCESS, inject_theme
 from views import (
     DATA_2D,
     render_casas_view,
     render_data_step,
-    render_feature_extraction_view,
+    render_extractor_inspector,
     render_playground_view,
 )
 
@@ -83,6 +83,13 @@ st.html(
         box-shadow: 0 24px 60px rgba(0,0,0,0.5);
       }}
       .fq-modal h3 {{ margin-top: 0; }}
+      .fq-group-title {{
+        margin: 20px 0 6px; padding-bottom: 6px;
+        border-bottom: 1px solid var(--border);
+        font-size: 13px; font-weight: 700; letter-spacing: 0.04em;
+        text-transform: uppercase; color: var(--text-muted);
+      }}
+      .fq-group-title:first-child {{ margin-top: 0; }}
       .fq-list {{ display: flex; flex-direction: column; gap: 14px; }}
       .fq-card {{
         border: 1px solid var(--border); border-left: 4px solid var(--action-primary);
@@ -205,7 +212,7 @@ def _render_features_step() -> None:
     if st.session_state.data_source == DATA_2D:
         st.caption("2D datasets need no feature engineering")
     else:
-        render_feature_extraction_view()
+        render_extractor_inspector()
 
 
 def _render_detect_step() -> None:

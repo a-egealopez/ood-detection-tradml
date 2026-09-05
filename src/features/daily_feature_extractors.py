@@ -18,15 +18,13 @@ from typing import ClassVar
 import numpy as np
 import pandas as pd
 
-from config import DEFAULT_RANDOM_STATE
-from features.common import (
+from features.daily_aggregates import (
     EPSILON,
     daily_aggregates,
     entropy,
     event_sequence,
     extract_by_date,
 )
-from ingestion.markov_generator import NOISE
 
 
 class EventDrivenExtractor:
@@ -424,95 +422,3 @@ class NextEventTransitionExtractor(EventDrivenExtractor):
             "feature_names": self.FEATURE_NAMES,
             "rare_threshold": rare_threshold,
         }
-
-
-def sensor_chain_probabilities(n_sensors: int) -> np.ndarray:
-    """First-order transition matrix: asymmetric directed cycle (``i -> i+1`` dominant).
-
-    Asymmetry makes a reversed day (collective injector) produce rare transitions;
-    a symmetric stream would be indistinguishable after reversal. Falls back to
-    uniform for ``n_sensors < 3`` (a cycle needs three states).
-    """
-    if n_sensors < 3:
-        return np.full((n_sensors, n_sensors), 1.0 / n_sensors)
-    weights = np.ones((n_sensors, n_sensors))
-    for i in range(n_sensors):
-        weights[i, i] = 5.0
-        weights[i, (i + 1) % n_sensors] = 25.0
-        weights[i, (i - 1) % n_sensors] = 2.0
-    probs = weights / weights.sum(axis=1, keepdims=True)
-    return (1.0 - NOISE) * probs + NOISE / n_sensors
-
-
-def generate_synthetic_events(
-    n_days: int = 5,
-    pattern: str = "regular",
-    n_sensors: int = 3,
-    events_per_day: int = 80,
-    seed: int = DEFAULT_RANDOM_STATE,
-) -> pd.DataFrame:
-    """Synthetic event stream in CASAS-Aruba schema (no DB needed).
-
-    Sensors are drawn from an asymmetric first-order Markov chain (see
-    ``sensor_chain_probabilities``) so the sequence extractors have structure to
-    learn and a reversal produces rare transitions.
-
-    pattern: "regular" (evenly spaced), "bursty" (temporal clusters), or
-    "day_night" (mostly daytime).
-    """
-    rng = np.random.default_rng(seed)
-    sensors = [f"Sensor_{i + 1}" for i in range(n_sensors)]
-    transition_probs = sensor_chain_probabilities(n_sensors)
-    base_day = pd.Timestamp("2024-01-01")
-    records = []
-
-    for day in range(n_days):
-        day_start = base_day + pd.Timedelta(days=day)
-
-        if pattern == "regular":
-            offsets = np.linspace(0, 24 * 60, events_per_day, endpoint=False)
-            offsets = offsets + rng.normal(0, 2, size=events_per_day)
-        elif pattern == "bursty":
-            n_clusters = max(3, events_per_day // 15)
-            centers = rng.uniform(0, 24 * 60, size=n_clusters)
-            per_cluster = max(events_per_day // n_clusters, 1)
-            offsets = np.concatenate(
-                [rng.normal(center, 5, size=per_cluster) for center in centers]
-            )
-        elif pattern == "day_night":
-            day_events = int(events_per_day * 0.85)
-            night_events = events_per_day - day_events
-            offsets = np.concatenate(
-                [
-                    rng.uniform(8 * 60, 22 * 60, size=day_events),
-                    rng.uniform(0, 8 * 60, size=night_events // 2),
-                    rng.uniform(
-                        22 * 60, 24 * 60, size=night_events - night_events // 2
-                    ),
-                ]
-            )
-        else:
-            raise ValueError(f"Unknown pattern: {pattern}")
-
-        offsets = np.clip(offsets, 0, 24 * 60 - 0.01)
-        timestamps = [day_start + pd.Timedelta(minutes=float(minutes)) for minutes in offsets]
-        seq = np.empty(len(timestamps), dtype=int)
-        seq[0] = int(rng.integers(0, n_sensors))
-        for i in range(1, len(timestamps)):
-            seq[i] = int(rng.choice(n_sensors, p=transition_probs[seq[i - 1]]))
-        chosen_sensors = [sensors[int(i)] for i in seq]
-        event_types = rng.choice(["ON", "OFF"], size=len(timestamps))
-
-        for timestamp, sensor, event_type in zip(
-            timestamps, chosen_sensors, event_types, strict=True
-        ):
-            records.append(
-                {
-                    "timestamp": timestamp,
-                    "sensor_id": sensor,
-                    "event_type": event_type,
-                    "value": 1.0 if event_type == "ON" else 0.0,
-                }
-            )
-
-    return pd.DataFrame(records).sort_values("timestamp").reset_index(drop=True)

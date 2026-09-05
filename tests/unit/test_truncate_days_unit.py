@@ -1,13 +1,13 @@
 import pandas as pd
 import pytest
 
-from features.common import truncate_stream_to_days
-from ingestion.markov_generator import generate_house_stream
+from features.daily_aggregates import truncate_stream_to_days
+from ingestion.casas_stream_generator import simulate_house
 
 
 @pytest.fixture
 def stream():
-    raw = generate_house_stream(
+    raw = simulate_house(
         house_id="h", events_mean=400, night_ratio=0.1, n_days=20, seed=1
     )
     raw["timestamp"] = pd.to_datetime(raw["date"] + " " + raw["time"])

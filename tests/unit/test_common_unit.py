@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from features.common import daily_aggregates, entropy, extract_by_date
+from features.daily_aggregates import daily_aggregates, entropy, extract_by_date
 
 
 def test_entropy_uniform_histogram_uses_full_range():

@@ -8,7 +8,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config import HOUSES, db_path, raw_csv_path, setup_logging
-from ingestion.sqlite_manager import SQLiteDataManager
+from ingestion.event_store import SQLiteDataManager
 
 logger = logging.getLogger(__name__)
 

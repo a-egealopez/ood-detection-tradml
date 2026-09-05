@@ -22,7 +22,7 @@ from detectors.constants import (
     DEFAULT_RANDOM_STATE,
     DEFAULT_TRAIN_SPLIT,
 )
-from evaluation.event_injection import (
+from evaluation.anomaly_injectors import (
     INTENSITY_PRESETS,
     inject_collective_events,
     inject_contextual_events,
@@ -35,8 +35,8 @@ from features import (
     NextEventTransitionExtractor,
     TemporalFeatureExtractor,
 )
-from features.common import truncate_stream_to_days
-from ingestion.sqlite_manager import SQLiteDataManager
+from features.daily_aggregates import truncate_stream_to_days
+from ingestion.event_store import SQLiteDataManager
 
 logger = setup_logging()
 

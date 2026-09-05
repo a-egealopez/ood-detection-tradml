@@ -13,17 +13,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from config import HOUSES, REAL_DATA_DIR, SYNTHETIC_DATA_DIR, db_path
 from detectors.constants import DEFAULT_CONTAMINATION, DEFAULT_RANDOM_STATE, DEFAULT_TRAIN_SPLIT
-from evaluation.event_injection import (
+from evaluation.anomaly_injectors import (
     INTENSITY_PRESETS,
     inject_collective_events,
     inject_contextual_events,
     inject_point_events,
     select_anomaly_dates,
 )
-from features.common import truncate_stream_to_days
-from ingestion.casas_loader import load_all_houses
-from ingestion.markov_generator import generate_house_stream
-from ingestion.sqlite_manager import SQLiteDataManager
+from features.daily_aggregates import truncate_stream_to_days
+from ingestion.casas_csv_to_sqlite import load_all_houses
+from ingestion.casas_stream_generator import simulate_house
+from ingestion.event_store import SQLiteDataManager
 
 # Anomaly scenarios: control (null), point, contextual, collective.
 INJECTION_SCENARIOS = ("control", "point", "contextual", "collective")
@@ -102,7 +102,7 @@ def ensure_synthetic_db() -> None:
     try:
         SYNTHETIC_DATA_DIR.mkdir(parents=True, exist_ok=True)
         for house_id, profile in _SYNTHETIC_HOUSE_PROFILES.items():
-            df = generate_house_stream(house_id=house_id, **profile)
+            df = simulate_house(house_id=house_id, **profile)
             df.to_csv(SYNTHETIC_DATA_DIR / f"casas_{house_id}_raw.csv", header=False, index=False)
         mgr = SQLiteDataManager(str(out))
         mgr.connect()

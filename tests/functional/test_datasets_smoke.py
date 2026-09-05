@@ -1,4 +1,4 @@
-from teaching.datasets import SyntheticDatasetGenerator
+from teaching.synthetic_2d_datasets import SyntheticDatasetGenerator
 
 
 def test_all_datasets_generated_with_shapes_and_contamination():

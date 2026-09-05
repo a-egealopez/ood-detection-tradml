@@ -7,7 +7,7 @@ from detectors.constants import (
     DEFAULT_RANDOM_STATE,
     DEFAULT_SUPPORT_FRACTION,
 )
-from detectors.vectorial.classical_gaussian import ClassicalGaussian, is_mcd_safe
+from detectors.vectorial.gaussian_fallback import ClassicalGaussian, is_mcd_safe
 
 
 class EllipticEnvelopeDetector(BaseDetector):
